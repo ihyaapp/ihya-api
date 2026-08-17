@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: ihya-api
+
+  profiles:
+    active: local
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
