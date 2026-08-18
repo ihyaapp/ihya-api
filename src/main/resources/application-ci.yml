@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ihya
+    username: ihya
+    password: ${DB_PASSWORD}
+
+  flyway:
+    enabled: true
+
