@@ -4,8 +4,8 @@ on:
   push:
     branches: [ main,dev, 'feature/**' ]
   pull_request:
-    branches: [ main ]
-
+    branches: [ main,dev ]
+  git branch -d feature/backend-project-foundation
 jobs:
   build:
     runs-on: ubuntu-latest

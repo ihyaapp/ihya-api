@@ -1,0 +1,190 @@
+openapi: 3.0.3
+info:
+  title: Ihya Identity API
+  description: Authentication endpoints for the identity module.
+  version: 1.0.0
+
+paths:
+  /auth/register:
+    post:
+      summary: Register a new user
+      tags: [Identity]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Validation error (e.g. weak password, malformed email)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/login:
+    post:
+      summary: Authenticate a user and issue tokens
+      tags: [Identity]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful. Web clients receive refresh token as HttpOnly cookie; mobile clients receive it in the response body.
+          headers:
+            Set-Cookie:
+              description: HttpOnly Secure refresh token cookie (web clients only)
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Invalid email or password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      summary: Exchange a valid refresh token for a new access token (with rotation)
+      tags: [Identity]
+      description: >
+        Web clients send the refresh token via HttpOnly cookie (no body needed).
+        Mobile clients MUST send the refresh token in the request body; omitting it
+        is a validation error for mobile clients.
+
+        ROTATION: every successful call revokes the presented refresh token and
+        issues a brand new one (returned via cookie for web, in the response body
+        for mobile). The old token is never valid again.
+
+        REUSE DETECTION: if a refresh token that has already been revoked is
+        presented again, this is treated as a signal of token theft. ALL refresh
+        tokens for that user are revoked, forcing re-authentication on every
+        device/session.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: New access token and rotated refresh token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: >
+            Refresh token invalid or expired. Also returned when a revoked
+            (already-rotated) token is reused; in this case all sessions for
+            the user have additionally been revoked server-side.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/logout:
+    post:
+      summary: Revoke the presented refresh token
+      tags: [Identity]
+      description: >
+        Revokes only the specific refresh token used (targeted revocation),
+        not all sessions for the user. Idempotent: calling this on an
+        already-revoked or already-logged-out token still returns 204,
+        since the end state (token not valid) is unchanged either way.
+        Web clients also have their refresh cookie cleared.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '204':
+          description: Logout complete (token revoked, or already was)
+
+components:
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    RefreshRequest:
+      type: object
+      description: >
+        MOBILE CLIENTS: refreshToken is REQUIRED in this body. Its absence is a
+        400 validation error.
+        WEB CLIENTS: omit this body entirely (or send {}); the refresh token is
+        read from the HttpOnly cookie instead. A web client that also sends a
+        body token should have the cookie take precedence — the body is ignored.
+      properties:
+        refreshToken:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        expiresIn:
+          type: integer
+          description: Access token lifetime in seconds
+        refreshToken:
+          type: string
+          description: Present in response body for mobile clients only. Web clients receive this via Set-Cookie instead.
+        userId:
+          type: string
+          format: uuid
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
