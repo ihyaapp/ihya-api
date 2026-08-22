@@ -13,13 +13,22 @@ public class UserService {
     private final UserRepository userRepository;
     private final ProfileService profileService;
     private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
+    private final RefreshTokenService refreshTokenService;
+    private final JwtProperties jwtProperties;
+
 
     public UserService(UserRepository userRepository,
                        ProfileService profileService,
-                       PasswordEncoder passwordEncoder) {
+                       PasswordEncoder passwordEncoder,JwtService jwtService,
+                       RefreshTokenService refreshTokenService,
+                       JwtProperties jwtProperties) {
         this.userRepository = userRepository;
         this.profileService = profileService;
         this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
+        this.refreshTokenService = refreshTokenService;
+        this.jwtProperties = jwtProperties;
     }
 
     @Transactional
@@ -39,5 +48,18 @@ public class UserService {
 
     public Optional<User> findByEmail(String email) {
         return userRepository.findByEmail(email);
+    }
+    public AuthTokens login(String email, String rawPassword) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(InvalidCredentialsException::new);
+
+        if (!passwordEncoder.matches(rawPassword, user.getPasswordHash())) {
+            throw new InvalidCredentialsException();
+        }
+
+        String accessToken = jwtService.generateAccessToken(user.getId());
+        String refreshToken = refreshTokenService.issueRefreshToken(user.getId());
+
+        return new AuthTokens(accessToken, refreshToken, jwtProperties.getAccessTokenExpiryMinutes());
     }
 }
