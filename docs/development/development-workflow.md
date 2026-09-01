@@ -21,6 +21,23 @@ The goal is to:
 
 Ensure Docker Desktop is running.
 
+Before starting containers, ensure `DB_PASSWORD` is set in the current terminal session:
+
+```bash
+export DB_PASSWORD=<your_password>
+```
+
+Verify:
+
+```bash
+echo $DB_PASSWORD
+```
+
+This is required every time a new terminal is opened — `export` does not persist
+across sessions. The `.env` file (Section 10) covers Docker Compose only; Spring and
+any manually-run `docker` commands in this terminal still need `DB_PASSWORD` exported
+here directly.
+
 Check the Ihya containers:
 
 ```bash
@@ -171,6 +188,29 @@ Integration tests that require the CI configuration should explicitly activate i
 
 Do not assume that `application-ci.yml` is automatically active.
 
+**Local builds:** `mvn install`/`mvn verify` fork a separate JVM for Surefire to run
+tests in. A `-Dspring.profiles.active=local` flag passed to the outer Maven process
+does **not** automatically forward into that forked JVM. Activate the profile for
+tests explicitly in `pom.xml`:
+
+```xml
+<plugin>
+   <groupId>org.apache.maven.plugins</groupId>
+   <artifactId>maven-surefire-plugin</artifactId>
+   <configuration>
+      <systemPropertyVariables>
+         <spring.profiles.active>local</spring.profiles.active>
+      </systemPropertyVariables>
+   </configuration>
+</plugin>
+```
+
+Confirm activation by checking the Spring Boot startup banner in test output for:
+
+```text
+The following 1 profile is active: "local"
+```
+
 ---
 
 # 7. Database Verification
@@ -292,6 +332,22 @@ Never put real credentials directly into:
 - `application-ci.yml`
 - GitHub workflow files
 - committed documentation
+
+## DB_PASSWORD specifically
+
+`DB_PASSWORD` is supplied via a `.env` file in the same directory as `docker-compose.yml`:
+
+```text
+DB_PASSWORD=your_password
+```
+
+`.env` must be listed in `.gitignore` — verify this before every commit that touches
+`docker-compose.yml` or `application-local.yml`.
+
+Docker Compose reads `.env` automatically. Spring (via `application-local.yml`'s
+`${DB_PASSWORD}` placeholder) reads it from the OS-level environment — confirm which
+mechanism supplies it to the JVM (shell `export`, IDE run configuration, etc.), since
+`.env` alone only feeds Docker Compose, not the Java process.
 
 ---
 
@@ -528,6 +584,10 @@ Test one layer at a time.
 
 This prevents unrelated configuration changes from making the original problem harder to diagnose.
 
+If failure occurs at the "Are credentials correct?" layer despite `docker-compose.yml`
+and `application-local.yml` matching, see "Stale Docker Volume Credentials" in Section 18
+before changing any configuration values.
+
 ---
 
 # 18. Key Lessons From Issue #5
@@ -569,6 +629,39 @@ or explicitly in an integration test:
 ```java
 @ActiveProfiles("ci")
 ```
+
+The same applies locally to `application-local.yml` when running `mvn install`/`mvn verify`:
+a `-Dspring.profiles.active=local` flag on the Maven command line does not automatically
+reach the forked Surefire test JVM. See Section 6 for the required `pom.xml` configuration.
+
+## Stale Docker Volume Credentials
+
+`POSTGRES_PASSWORD` in `docker-compose.yml` only takes effect the first time a volume
+is initialized. If `DB_PASSWORD` changes afterward, Postgres inside the container keeps
+using the original password — it does not re-read `POSTGRES_PASSWORD` on every start.
+
+Symptom:
+
+```text
+FATAL: password authentication failed for user "ihya"
+```
+
+...even though `docker-compose.yml` and `application-local.yml` agree on the current
+value of `DB_PASSWORD`, and Docker/Postgres are confirmed running.
+
+Fix — destroy and recreate the volume:
+
+```bash
+docker compose down -v
+docker compose up -d
+```
+
+`-v` is required. `docker compose down` alone stops the container but leaves the
+volume — and the old baked-in password — intact.
+
+This failure mode looks identical to a genuine credential typo or port mismatch.
+Follow Section 17's layer-by-layer isolation before assuming this is the cause —
+confirm the password values actually match first, and only then suspect a stale volume.
 
 ## Flyway
 
