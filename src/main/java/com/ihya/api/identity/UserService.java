@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 public class UserService {
@@ -54,6 +55,17 @@ public class UserService {
 
     public Optional<User> findByEmail(String email) {
         return userRepository.findByEmail(email);
+    }
+
+    /**
+     * Loads the user behind an authenticated request. The id comes from a
+     * verified access token, so a miss here means the account was deleted after
+     * the token was issued — surfaced as {@link UserNotFoundException} (a 401,
+     * see that type for why).
+     */
+    public User getById(UUID userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(UserNotFoundException::new);
     }
     public LoginResult login(String email, String rawPassword) {
         User user = userRepository.findByEmail(email)

@@ -23,6 +23,8 @@ import java.util.stream.Collectors;
  *   <li>{@link InvalidCredentialsException} &rarr; 401</li>
  *   <li>{@link InvalidRefreshTokenException} &rarr; 401 (covers the reuse-detection
  *       path documented in {@code openapi/identity-api.yaml})</li>
+ *   <li>{@link UserNotFoundException} &rarr; 401 (verified token whose user was
+ *       since deleted)</li>
  *   <li>{@link MethodArgumentNotValidException} (a {@code @Valid} failure) &rarr; 400,
  *       with the actual field-level messages flattened into {@code message}</li>
  *   <li>{@link HttpMessageNotReadableException} (unparseable / missing request
@@ -50,6 +52,16 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(InvalidRefreshTokenException.class)
     public ResponseEntity<ErrorResponse> handleInvalidRefreshToken(InvalidRefreshTokenException ex) {
+        return build(HttpStatus.UNAUTHORIZED, ex.getMessage());
+    }
+
+    /**
+     * The id in a verified access token no longer matches a user row (account
+     * deleted after issue). Treated as an authentication failure, not a 404 —
+     * see {@link UserNotFoundException}.
+     */
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException ex) {
         return build(HttpStatus.UNAUTHORIZED, ex.getMessage());
     }
 
