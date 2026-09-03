@@ -1,0 +1,85 @@
+openapi: 3.0.3
+info:
+  title: Ihya Profile API
+  description: Profile endpoints for the profile module.
+  version: 1.0.0
+paths:
+  /me:
+    get:
+      summary: Get the authenticated user's profile
+      tags: [Profile]
+      description: >
+        Returns profile data only (owned by the profile module). Does not
+        return identity/credential data such as email — that belongs to the
+        identity module and is not exposed here.
+
+        A profile row is guaranteed to exist for every authenticated user:
+        it is created automatically as part of registration (identity module
+        calls profile's service interface transactionally at register time).
+        There is therefore no 404 case for "profile not found" on this endpoint.
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileResponse'
+        '401':
+          description: >
+            No valid authentication presented. Applies to both mobile
+            (missing/invalid/expired bearer access token) and web
+            (missing/invalid/expired access token cookie).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Used by mobile clients. Access token sent as Authorization header.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: accessToken
+      description: >
+        Used by web clients. Access token sent as an HttpOnly Secure cookie.
+        Requests must also include the CSRF header per your stated web auth design.
+  schemas:
+    ProfileResponse:
+      type: object
+      required:
+        - userId
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: >
+            Reference key correlating this profile to the identity module's
+            user record. Not owned data — used for correlation only.
+        name:
+          type: string
+          nullable: true
+          description: Display name of the user
+    ErrorResponse:
+      type: object
+      required:
+        - status
+        - error
+        - message
+        - timestamp
+      properties:
+        status:
+          type: integer
+        error:
+          type: string
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time

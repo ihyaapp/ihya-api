@@ -1,0 +1,10 @@
+com.ihya:ihya-api:jar:0.0.1-SNAPSHOT
+\- org.springframework.boot:spring-boot-starter-webmvc-test:jar:4.1.0:test
+   \- org.springframework.boot:spring-boot-starter-test:jar:4.1.0:test
+      +- org.assertj:assertj-core:jar:3.27.7:test
+      +- org.junit.jupiter:junit-jupiter:jar:6.0.3:test
+      |  +- org.junit.jupiter:junit-jupiter-api:jar:6.0.3:test
+      |  +- org.junit.jupiter:junit-jupiter-params:jar:6.0.3:test
+      |  \- org.junit.jupiter:junit-jupiter-engine:jar:6.0.3:test
+      +- org.mockito:mockito-core:jar:5.23.0:test
+      \- org.mockito:mockito-junit-jupiter:jar:5.23.0:test

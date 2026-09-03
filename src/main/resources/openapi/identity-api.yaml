@@ -1,0 +1,269 @@
+openapi: 3.0.3
+info:
+  title: Ihya Identity API
+  description: >
+    Authentication endpoints for the identity module.
+
+
+    Month 1 is Android-only: there is no web client and no cookie-based refresh
+    flow. Refresh tokens are always carried in request and response bodies. A
+    browser / HttpOnly-cookie variant was considered and is deliberately
+    deferred — out of scope for Month 1.
+  version: 1.0.0
+
+paths:
+  /auth/register:
+    post:
+      summary: Register a new user
+      tags: [Identity]
+      description: >
+        Creates a user and immediately authenticates them (auto-login): the
+        response carries a full token pair, so no separate /auth/login call is
+        needed afterwards.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered and auto-logged-in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: >
+            Request body failed validation (missing/blank field, malformed
+            email, or password shorter than 8 characters) or was not valid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: A user with that email address already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/login:
+    post:
+      summary: Authenticate a user and issue tokens
+      tags: [Identity]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authentication succeeded; a new token pair is returned in the body.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Request body failed validation (missing/blank field) or was not valid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: >
+            Bad credentials. The unknown-email and wrong-password cases
+            intentionally return an identical response body, so a caller cannot
+            tell which of the two it was.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      summary: Exchange a valid refresh token for a new token pair (with rotation)
+      tags: [Identity]
+      description: >
+        The refresh token is sent in the request body. (Month 1 is Android-only;
+        the web / HttpOnly-cookie variant is deferred.)
+
+
+        ROTATION: every successful call revokes the presented refresh token and
+        returns a brand new one in the response body. The old token is never
+        valid again.
+
+
+        REUSE DETECTION: presenting a refresh token that has already been
+        revoked (for example a previously rotated one) is treated as a signal of
+        token theft — every refresh token for that user is revoked server-side,
+        forcing re-authentication on all devices. It is reported as a 401, the
+        same as any other invalid token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: New access token and rotated refresh token issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: refreshToken missing/blank, or the body was not valid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: >
+            Refresh token not recognised, expired, or already revoked. When a
+            revoked token is reused, that user's other sessions are also revoked
+            server-side (see the reuse-detection note above).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /me:
+    get:
+      summary: Get the currently authenticated user
+      tags: [Identity]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The authenticated caller's own user record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          description: >
+            Bearer token missing, malformed, expired, or naming a user that no
+            longer exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token issued by /auth/register, /auth/login or /auth/refresh.
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+      example:
+        email: user@example.com
+        password: correct-horse-battery-staple
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+      example:
+        email: user@example.com
+        password: correct-horse-battery-staple
+
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      description: >
+        refreshToken is required. Month 1 is Android-only, so it is always read
+        from this body; the web / HttpOnly-cookie alternative is deferred and
+        out of scope for now.
+      properties:
+        refreshToken:
+          type: string
+      example:
+        refreshToken: rT0k3n-b4se64url-abc123def456
+
+    AuthResponse:
+      type: object
+      description: Returned by /auth/register, /auth/login and /auth/refresh.
+      properties:
+        accessToken:
+          type: string
+          description: "Signed JWT. Sent as `Authorization: Bearer <token>` on authenticated requests."
+        expiresIn:
+          type: integer
+          description: Access-token lifetime in seconds.
+        refreshToken:
+          type: string
+          description: The (rotated) refresh token. Always returned in the body — Android-only for Month 1.
+        userId:
+          type: string
+          format: uuid
+      example:
+        accessToken: eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiIzZjhjMWUwMiJ9.sig
+        expiresIn: 900
+        refreshToken: rT0k3n-b4se64url-abc123def456
+        userId: 3f8c1e02-9c4a-4b7e-9f1a-2d6b5c8e7a10
+
+    MeResponse:
+      type: object
+      description: Public view of the authenticated user — never includes the password hash.
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        createdAt:
+          type: string
+          format: date-time
+      example:
+        id: 3f8c1e02-9c4a-4b7e-9f1a-2d6b5c8e7a10
+        email: user@example.com
+        createdAt: 2026-09-01T08:30:00Z
+
+    ErrorResponse:
+      type: object
+      description: >
+        The single error shape used by every non-2xx response in this API,
+        produced by GlobalExceptionHandler and RestAuthenticationEntryPoint.
+      properties:
+        status:
+          type: integer
+          description: HTTP status code, repeated in the body.
+        error:
+          type: string
+          description: HTTP status reason phrase, e.g. "Unauthorized".
+        message:
+          type: string
+          description: >
+            Human-readable detail. For bean-validation failures this is the
+            field-level messages joined with "; ".
+        timestamp:
+          type: string
+          format: date-time
+      example:
+        status: 401
+        error: Unauthorized
+        message: Authentication required
+        timestamp: 2026-09-03T18:50:26.301Z
