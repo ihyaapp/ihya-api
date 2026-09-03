@@ -1,10 +1,12 @@
 package com.ihya.api.identity;
 
 import com.ihya.api.profile.ProfileService;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -34,13 +36,30 @@ public class UserService {
 
     @Transactional
     public RegistrationResult register(String email, String rawPassword) {
-        if (userRepository.findByEmail(email).isPresent()) {
-            throw new EmailAlreadyRegisteredException(email);
+        String normalizedEmail = normalizeEmail(email);
+
+        if (userRepository.findByEmail(normalizedEmail).isPresent()) {
+            throw new EmailAlreadyRegisteredException(normalizedEmail);
         }
 
         String hashedPassword = passwordEncoder.encode(rawPassword);
-        User user = new User(email, hashedPassword);
-        User savedUser = userRepository.save(user);
+        User user = new User(normalizedEmail, hashedPassword);
+        User savedUser;
+        try {
+            // saveAndFlush (not save): force the INSERT — and any unique-constraint
+            // violation — to happen here, inside the try, rather than being
+            // deferred to transaction commit after this method has returned.
+            savedUser = userRepository.saveAndFlush(user);
+        } catch (DataIntegrityViolationException ex) {
+            // A concurrent registration for the same email can pass the check
+            // above and then lose the race to the DB unique constraint. Remap
+            // only that specific violation to the same exception the check-first
+            // path throws; any other integrity error is real and must propagate.
+            if (isEmailUniqueViolation(ex)) {
+                throw new EmailAlreadyRegisteredException(normalizedEmail);
+            }
+            throw ex;
+        }
 
         profileService.createProfile(savedUser.getId());
 
@@ -54,7 +73,7 @@ public class UserService {
     }
 
     public Optional<User> findByEmail(String email) {
-        return userRepository.findByEmail(email);
+        return userRepository.findByEmail(normalizeEmail(email));
     }
 
     /**
@@ -68,7 +87,7 @@ public class UserService {
                 .orElseThrow(UserNotFoundException::new);
     }
     public LoginResult login(String email, String rawPassword) {
-        User user = userRepository.findByEmail(email)
+        User user = userRepository.findByEmail(normalizeEmail(email))
                 .orElseThrow(InvalidCredentialsException::new);
 
         if (!passwordEncoder.matches(rawPassword, user.getPasswordHash())) {
@@ -80,5 +99,31 @@ public class UserService {
 
         AuthTokens tokens = new AuthTokens(accessToken, refreshToken, jwtProperties.getAccessTokenExpiryMinutes());
         return new LoginResult(user, tokens);
+    }
+
+    /**
+     * Canonical form of an email for both storage and lookup: surrounding
+     * whitespace trimmed, then lower-cased. The {@code users.email} unique
+     * constraint is case-sensitive at the DB level (plain {@code VARCHAR}, see
+     * {@code V2__create_identity_and_profile_tables.sql}), so it is the
+     * application that makes email uniqueness — and therefore login — behave
+     * case-insensitively. Every write and every lookup must pass through here.
+     */
+    private static String normalizeEmail(String email) {
+        return email == null ? null : email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * True only when the given violation is the {@code users.email} unique
+     * constraint. {@code users} has exactly one other constraint — the
+     * {@code id} primary key — and masking an unrelated integrity error as a
+     * duplicate email would hide a real bug, so this matches specifically on the
+     * constraint name Postgres derives for the {@code email} column
+     * ({@code users_email_key}).
+     */
+    private static boolean isEmailUniqueViolation(DataIntegrityViolationException ex) {
+        Throwable cause = ex.getMostSpecificCause();
+        String message = cause == null ? null : cause.getMessage();
+        return message != null && message.toLowerCase(Locale.ROOT).contains("users_email_key");
     }
 }

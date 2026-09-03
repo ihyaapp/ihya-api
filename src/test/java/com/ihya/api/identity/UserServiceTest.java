@@ -7,6 +7,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.lang.reflect.Field;
@@ -62,14 +63,14 @@ class UserServiceTest {
         User savedUser = userWithId(newId, email, "hashed-pw");
         when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
         when(passwordEncoder.encode(rawPassword)).thenReturn("hashed-pw");
-        when(userRepository.save(any(User.class))).thenReturn(savedUser);
+        when(userRepository.saveAndFlush(any(User.class))).thenReturn(savedUser);
         when(jwtService.generateAccessToken(newId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(newId)).thenReturn("refresh-token");
         when(jwtProperties.getAccessTokenExpiryMinutes()).thenReturn(15L);
 
         RegistrationResult result = userService.register(email, rawPassword);
 
-        verify(userRepository).save(any(User.class));
+        verify(userRepository).saveAndFlush(any(User.class));
         verify(profileService).createProfile(newId);
         verify(jwtService).generateAccessToken(newId);
         verify(refreshTokenService).issueRefreshToken(newId);
@@ -86,7 +87,7 @@ class UserServiceTest {
         UUID newId = UUID.randomUUID();
         when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
         when(passwordEncoder.encode(rawPassword)).thenReturn("bcrypt$hash$value");
-        when(userRepository.save(any(User.class))).thenReturn(userWithId(newId, email, "bcrypt$hash$value"));
+        when(userRepository.saveAndFlush(any(User.class))).thenReturn(userWithId(newId, email, "bcrypt$hash$value"));
         when(jwtService.generateAccessToken(newId)).thenReturn("access-token");
         when(refreshTokenService.issueRefreshToken(newId)).thenReturn("refresh-token");
         when(jwtProperties.getAccessTokenExpiryMinutes()).thenReturn(15L);
@@ -95,7 +96,7 @@ class UserServiceTest {
         userService.register(email, rawPassword);
 
         verify(passwordEncoder).encode(rawPassword);
-        verify(userRepository).save(userCaptor.capture());
+        verify(userRepository).saveAndFlush(userCaptor.capture());
         User persisted = userCaptor.getValue();
         assertThat(persisted.getEmail()).isEqualTo(email);
         assertThat(persisted.getPasswordHash())
@@ -112,8 +113,73 @@ class UserServiceTest {
         Throwable thrown = catchThrowable(() -> userService.register(email, "any-password"));
 
         assertThat(thrown).isInstanceOf(EmailAlreadyRegisteredException.class);
-        verify(userRepository, never()).save(any());
+        verify(userRepository, never()).saveAndFlush(any());
         verifyNoInteractions(passwordEncoder, profileService, jwtService, refreshTokenService);
+    }
+
+    @Test
+    void register_mixedCaseAndPaddedEmail_normalizedBeforeLookupAndSave() {
+        String inputEmail = "  Foo@Example.COM  ";
+        String normalized = "foo@example.com";
+        UUID newId = UUID.randomUUID();
+        when(userRepository.findByEmail(normalized)).thenReturn(Optional.empty());
+        when(passwordEncoder.encode("pw")).thenReturn("hashed-pw");
+        when(userRepository.saveAndFlush(any(User.class)))
+                .thenReturn(userWithId(newId, normalized, "hashed-pw"));
+        when(jwtService.generateAccessToken(newId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(newId)).thenReturn("refresh-token");
+        when(jwtProperties.getAccessTokenExpiryMinutes()).thenReturn(15L);
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+
+        userService.register(inputEmail, "pw");
+
+        verify(userRepository).findByEmail(normalized);
+        verify(userRepository).saveAndFlush(userCaptor.capture());
+        assertThat(userCaptor.getValue().getEmail()).isEqualTo(normalized);
+    }
+
+    @Test
+    void register_duplicateEmailDifferentCase_throwsEmailAlreadyRegisteredException() {
+        String normalized = "foo@example.com";
+        when(userRepository.findByEmail(normalized))
+                .thenReturn(Optional.of(userWithId(UUID.randomUUID(), normalized, "existing-hash")));
+
+        Throwable thrown = catchThrowable(() -> userService.register("FOO@Example.com", "pw"));
+
+        assertThat(thrown).isInstanceOf(EmailAlreadyRegisteredException.class);
+        verify(userRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(passwordEncoder, profileService, jwtService, refreshTokenService);
+    }
+
+    @Test
+    void register_concurrentInsertHitsEmailUniqueConstraint_throwsEmailAlreadyRegisteredException() {
+        String email = "racer@example.com";
+        when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
+        when(passwordEncoder.encode("pw")).thenReturn("hashed-pw");
+        when(userRepository.saveAndFlush(any(User.class))).thenThrow(new DataIntegrityViolationException(
+                "could not execute statement [ERROR: duplicate key value violates unique "
+                        + "constraint \"users_email_key\"]"));
+
+        Throwable thrown = catchThrowable(() -> userService.register(email, "pw"));
+
+        assertThat(thrown).isExactlyInstanceOf(EmailAlreadyRegisteredException.class);
+        verifyNoInteractions(profileService, jwtService, refreshTokenService);
+    }
+
+    @Test
+    void register_saveHitsUnrelatedConstraint_propagatesDataIntegrityViolation() {
+        String email = "racer@example.com";
+        DataIntegrityViolationException dbError = new DataIntegrityViolationException(
+                "could not execute statement [ERROR: insert or update on table \"users\" violates "
+                        + "foreign key constraint \"some_other_fk\"]");
+        when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
+        when(passwordEncoder.encode("pw")).thenReturn("hashed-pw");
+        when(userRepository.saveAndFlush(any(User.class))).thenThrow(dbError);
+
+        Throwable thrown = catchThrowable(() -> userService.register(email, "pw"));
+
+        assertThat(thrown).isSameAs(dbError);
+        verifyNoInteractions(profileService, jwtService, refreshTokenService);
     }
 
     // ----------------------------------------------------------------------
@@ -141,6 +207,24 @@ class UserServiceTest {
         assertThat(result.tokens().accessToken()).isEqualTo("access-token");
         assertThat(result.tokens().refreshToken()).isEqualTo("refresh-token");
         assertThat(result.tokens().accessTokenExpiryMinutes()).isEqualTo(15L);
+    }
+
+    @Test
+    void login_mixedCaseAndPaddedEmail_matchesExistingUser() {
+        String normalized = "member@example.com";
+        UUID userId = UUID.randomUUID();
+        User user = userWithId(userId, normalized, "stored-hash");
+        when(userRepository.findByEmail(normalized)).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("correct-password", "stored-hash")).thenReturn(true);
+        when(jwtService.generateAccessToken(userId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(userId)).thenReturn("refresh-token");
+        when(jwtProperties.getAccessTokenExpiryMinutes()).thenReturn(15L);
+
+        LoginResult result = userService.login("  Member@Example.COM  ", "correct-password");
+
+        verify(userRepository).findByEmail(normalized);
+        assertThat(result.user()).isSameAs(user);
+        assertThat(result.tokens().accessToken()).isEqualTo("access-token");
     }
 
     @Test
