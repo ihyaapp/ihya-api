@@ -39,8 +39,25 @@ public class Category {
         this.createdAt = Instant.now();
     }
 
-    // Getters — no setters, matching User. See the flag in the task report:
-    // the planned admin edit/rename endpoint will need a mutation path added here.
+    /**
+     * Applies an edit from the admin catalogue. Not a raw setter: it is the one
+     * intentional mutation this entity allows, and it enforces the same
+     * non-blank rule on {@code name} that creation does. {@code name} is
+     * trimmed; {@code description} stays optional.
+     */
+    public void update(String name, String description) {
+        this.name = requireName(name);
+        this.description = description;
+    }
+
+    private static String requireName(String name) {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("Category name must not be blank");
+        }
+        return name.trim();
+    }
+
+    // Getters — no plain setters; the only mutation is update() above.
     public UUID getId() {
         return id;
     }

@@ -23,9 +23,9 @@ import java.util.UUID;
  *   <li>unknown id &rarr; {@link CategoryNotFoundException}.</li>
  * </ul>
  *
- * <p>{@code update(...)} is intentionally not implemented yet: {@link Category}
- * exposes no mutation path (no setters, no domain method) and adding one is the
- * open decision flagged in the report. Everything else is complete.
+ * <p>{@code create} and {@code update} share the same persist-and-remap step, so
+ * renaming a category onto a name that already exists fails exactly as a
+ * colliding create does.
  */
 @Service
 public class CategoryService {
@@ -39,19 +39,7 @@ public class CategoryService {
     @Transactional
     public Category create(String name, String description) {
         String cleanName = requireName(name);
-
-        Category category = new Category(cleanName, description);
-        try {
-            // saveAndFlush (not save): make the unique-constraint check happen
-            // here, inside the try, rather than at transaction commit after this
-            // method returns. Mirrors UserService.register.
-            return categoryRepository.saveAndFlush(category);
-        } catch (DataIntegrityViolationException ex) {
-            if (isCategoryNameUniqueViolation(ex)) {
-                throw new CategoryNameAlreadyExistsException(cleanName);
-            }
-            throw ex;
-        }
+        return persist(new Category(cleanName, description));
     }
 
     public Category getById(UUID id) {
@@ -64,9 +52,35 @@ public class CategoryService {
     }
 
     @Transactional
+    public Category update(UUID id, String name, String description) {
+        Category category = getById(id);
+        category.update(name, description);
+        return persist(category);
+    }
+
+    @Transactional
     public void delete(UUID id) {
         Category category = getById(id);
         categoryRepository.delete(category);
+    }
+
+    /**
+     * saveAndFlush (not save): make the unique-constraint check happen here,
+     * inside the try, rather than at transaction commit after the caller
+     * returns. A {@code categories_name_key} violation is remapped to
+     * {@link CategoryNameAlreadyExistsException}; anything else propagates.
+     * Mirrors {@code UserService.register}, and is shared by create and update
+     * so a rename collision behaves like a create collision.
+     */
+    private Category persist(Category category) {
+        try {
+            return categoryRepository.saveAndFlush(category);
+        } catch (DataIntegrityViolationException ex) {
+            if (isCategoryNameUniqueViolation(ex)) {
+                throw new CategoryNameAlreadyExistsException(category.getName());
+            }
+            throw ex;
+        }
     }
 
     private static String requireName(String name) {

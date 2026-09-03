@@ -16,8 +16,8 @@ import java.util.UUID;
  * that names no category &rarr; {@link CategoryNotFoundException} (reused, not a
  * new type — it is the same "that category does not exist" condition).
  *
- * <p>{@code update(...)} is intentionally not implemented yet — {@link Sunnah}
- * has no mutation path; see the report.
+ * <p>{@code update} re-resolves and re-validates the target category exactly as
+ * {@code create} does, then applies the edit through {@link Sunnah#update}.
  */
 @Service
 public class SunnahService {
@@ -54,6 +54,14 @@ public class SunnahService {
      */
     public Page<Sunnah> search(String query, UUID categoryId, Pageable pageable) {
         return sunnahRepository.search(trimToNull(query), categoryId, pageable);
+    }
+
+    @Transactional
+    public Sunnah update(UUID id, String title, String description, String action, String reference, UUID categoryId) {
+        Sunnah sunnah = getById(id);
+        Category category = requireCategory(categoryId);
+        sunnah.update(title, description, action, reference, category);
+        return sunnahRepository.save(sunnah);
     }
 
     @Transactional
