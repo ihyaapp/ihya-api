@@ -1,5 +1,9 @@
 package com.ihya.api.identity;
 
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
 /**
  * Incoming payload for {@code POST /auth/register}.
  *
@@ -10,8 +14,10 @@ package com.ihya.api.identity;
  *
  * <p>Contract (see {@code openapi/identity-api.yaml}): both fields are required,
  * {@code email} must be a well-formed address and {@code password} must be at
- * least 8 characters. Enforcing those rules arrives with the controller; this
- * type only fixes the shape.
+ * least 8 characters. The Bean Validation annotations below enforce that
+ * whenever a controller reads this with {@code @Valid}.
  */
-public record RegisterRequest(String email, String password) {
+public record RegisterRequest(
+        @NotBlank @Email String email,
+        @NotBlank @Size(min = 8, message = "password must be at least 8 characters") String password) {
 }
