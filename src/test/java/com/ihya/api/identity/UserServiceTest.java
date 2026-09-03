@@ -105,6 +105,25 @@ class UserServiceTest {
     }
 
     @Test
+    void register_newUser_isPersistedWithUserRole() {
+        String email = "role-check@example.com";
+        String rawPassword = "plaintext-password";
+        UUID newId = UUID.randomUUID();
+        when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
+        when(passwordEncoder.encode(rawPassword)).thenReturn("hashed-pw");
+        when(userRepository.saveAndFlush(any(User.class))).thenReturn(userWithId(newId, email, "hashed-pw"));
+        when(jwtService.generateAccessToken(newId)).thenReturn("access-token");
+        when(refreshTokenService.issueRefreshToken(newId)).thenReturn("refresh-token");
+        when(jwtProperties.getAccessTokenExpiryMinutes()).thenReturn(15L);
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+
+        userService.register(email, rawPassword);
+
+        verify(userRepository).saveAndFlush(userCaptor.capture());
+        assertThat(userCaptor.getValue().getRole()).isEqualTo(Role.USER);
+    }
+
+    @Test
     void register_duplicateEmail_throwsEmailAlreadyRegisteredExceptionAndNeverSaves() {
         String email = "taken@example.com";
         when(userRepository.findByEmail(email))
