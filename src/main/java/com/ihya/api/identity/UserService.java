@@ -49,7 +49,7 @@ public class UserService {
     public Optional<User> findByEmail(String email) {
         return userRepository.findByEmail(email);
     }
-    public AuthTokens login(String email, String rawPassword) {
+    public LoginResult login(String email, String rawPassword) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(InvalidCredentialsException::new);
 
@@ -60,6 +60,7 @@ public class UserService {
         String accessToken = jwtService.generateAccessToken(user.getId());
         String refreshToken = refreshTokenService.issueRefreshToken(user.getId());
 
-        return new AuthTokens(accessToken, refreshToken, jwtProperties.getAccessTokenExpiryMinutes());
+        AuthTokens tokens = new AuthTokens(accessToken, refreshToken, jwtProperties.getAccessTokenExpiryMinutes());
+        return new LoginResult(user, tokens);
     }
 }
