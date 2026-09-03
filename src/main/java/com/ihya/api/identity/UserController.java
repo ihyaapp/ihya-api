@@ -19,7 +19,8 @@ import java.util.UUID;
  * here directly.
  *
  * <p>An unauthenticated request never reaches this method: the security filter
- * chain stops it first and {@link RestAuthenticationEntryPoint} renders the 401.
+ * chain stops it first and {@link com.ihya.api.common.web.RestAuthenticationEntryPoint}
+ * renders the 401.
  */
 @RestController
 public class UserController {

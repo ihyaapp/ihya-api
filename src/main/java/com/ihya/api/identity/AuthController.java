@@ -22,8 +22,8 @@ import java.util.UUID;
  * <p>There is deliberately no {@code try/catch} here. {@link EmailAlreadyRegisteredException},
  * {@link InvalidCredentialsException}, {@link InvalidRefreshTokenException} and
  * {@code @Valid} failures propagate uncaught and are turned into clean
- * {@link ErrorResponse} JSON (409 / 401 / 401 / 400) by
- * {@link GlobalExceptionHandler}.
+ * {@link com.ihya.api.common.web.ErrorResponse} JSON (409 / 401 / 401 / 400) by
+ * {@link com.ihya.api.common.web.GlobalExceptionHandler}.
  */
 @RestController
 @RequestMapping("/auth")

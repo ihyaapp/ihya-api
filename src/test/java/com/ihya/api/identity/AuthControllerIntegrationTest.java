@@ -28,7 +28,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>Unlike {@code UserServiceTest} (which mocks every collaborator), this class
  * boots the real Spring context and drives requests through the whole chain with
  * {@link MockMvc}: the real {@code SecurityFilterChain}, {@link JwtAuthenticationFilter},
- * {@link RestAuthenticationEntryPoint}, {@link GlobalExceptionHandler} and a real
+ * {@link com.ihya.api.common.web.RestAuthenticationEntryPoint},
+ * {@link com.ihya.api.common.web.GlobalExceptionHandler} (generic request-shape
+ * failures), {@link IdentityExceptionHandler} (identity-specific) and a real
  * Postgres database. Nothing is mocked; the service layer runs for real.
  *
  * <h2>Database</h2>

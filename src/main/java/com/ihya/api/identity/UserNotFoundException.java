@@ -4,7 +4,7 @@ package com.ihya.api.identity;
  * The id carried by an otherwise-valid access token matches no user row — i.e.
  * the account was deleted after the token was issued.
  *
- * <p>Mapped to <strong>401</strong> by {@link GlobalExceptionHandler}, not 404:
+ * <p>Mapped to <strong>401</strong> by {@link com.ihya.api.common.web.GlobalExceptionHandler}, not 404:
  * the token still verifies cryptographically but no longer names a real
  * principal, so the request is effectively unauthenticated and the client must
  * re-authenticate. (Re-login is the only recovery and cannot succeed for a

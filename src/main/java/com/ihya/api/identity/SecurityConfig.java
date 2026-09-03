@@ -1,5 +1,6 @@
 package com.ihya.api.identity;
 
+import com.ihya.api.common.web.RestAuthenticationEntryPoint;
 import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -37,8 +38,9 @@ public class SecurityConfig {
      *       filter so a valid bearer token is already in the
      *       {@code SecurityContext} by the time authorization is checked.</li>
      *   <li>{@link RestAuthenticationEntryPoint} turns an unauthenticated hit on
-     *       a protected route into the project's standard {@link ErrorResponse}
-     *       JSON body, instead of Spring Security's bare default 401.</li>
+     *       a protected route into the project's standard
+     *       {@link com.ihya.api.common.web.ErrorResponse} JSON body, instead of
+     *       Spring Security's bare default 401.</li>
      * </ul>
      */
     @Bean
