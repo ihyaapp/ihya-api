@@ -32,7 +32,7 @@ public class UserService {
     }
 
     @Transactional
-    public User register(String email, String rawPassword) {
+    public RegistrationResult register(String email, String rawPassword) {
         if (userRepository.findByEmail(email).isPresent()) {
             throw new EmailAlreadyRegisteredException(email);
         }
@@ -43,7 +43,13 @@ public class UserService {
 
         profileService.createProfile(savedUser.getId());
 
-        return savedUser;
+        // Auto-login the new user: issue tokens directly rather than calling
+        // login(), which would re-run BCrypt against the hash we just created.
+        String accessToken = jwtService.generateAccessToken(savedUser.getId());
+        String refreshToken = refreshTokenService.issueRefreshToken(savedUser.getId());
+
+        AuthTokens tokens = new AuthTokens(accessToken, refreshToken, jwtProperties.getAccessTokenExpiryMinutes());
+        return new RegistrationResult(savedUser, tokens);
     }
 
     public Optional<User> findByEmail(String email) {
