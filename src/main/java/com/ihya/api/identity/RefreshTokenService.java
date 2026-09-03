@@ -15,11 +15,17 @@ import java.util.UUID;
 public class RefreshTokenService {
 
     private final RefreshTokenRepository refreshTokenRepository;
+    private final JwtService jwtService;
+    private final JwtProperties jwtProperties;
     private static final SecureRandom secureRandom = new SecureRandom();
     private static final long REFRESH_TOKEN_EXPIRY_DAYS = 30;
 
-    public RefreshTokenService(RefreshTokenRepository refreshTokenRepository) {
+    public RefreshTokenService(RefreshTokenRepository refreshTokenRepository,
+                              JwtService jwtService,
+                              JwtProperties jwtProperties) {
         this.refreshTokenRepository = refreshTokenRepository;
+        this.jwtService = jwtService;
+        this.jwtProperties = jwtProperties;
     }
 
     public String issueRefreshToken(UUID userId) {
@@ -49,24 +55,35 @@ public class RefreshTokenService {
         }
     }
 
-    public RefreshToken validateAndRotate(String rawToken) {
+    public RefreshResult validateAndRotate(String rawToken) {
         String hashedToken = hashToken(rawToken);
         RefreshToken existingToken = refreshTokenRepository.findByTokenHash(hashedToken)
                 .orElseThrow(() -> new InvalidRefreshTokenException("Refresh token not recognized"));
 
+        // Reuse detection: an already-revoked token being presented again is
+        // treated as theft. Revoke every token for the user and bail out here,
+        // before any replacement is issued.
         if (existingToken.isRevoked()) {
             revokeAllForUser(existingToken.getUserId());
             throw new InvalidRefreshTokenException("Refresh token reuse detected");
         }
 
+        // Expired-but-not-revoked token: reject before issuing anything new.
         if (existingToken.isExpired()) {
             throw new InvalidRefreshTokenException("Refresh token expired");
         }
 
+        // Valid token: revoke it, then issue its replacement pair.
         existingToken.revoke();
         refreshTokenRepository.save(existingToken);
 
-        return existingToken;
+        UUID userId = existingToken.getUserId();
+        String newAccessToken = jwtService.generateAccessToken(userId);
+        String newRefreshToken = issueRefreshToken(userId);
+
+        AuthTokens tokens = new AuthTokens(newAccessToken, newRefreshToken,
+                jwtProperties.getAccessTokenExpiryMinutes());
+        return new RefreshResult(userId, tokens);
     }
 
     public void revokeAllForUser(UUID userId) {
