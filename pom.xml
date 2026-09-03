@@ -122,9 +122,12 @@
 				<artifactId>maven-surefire-plugin</artifactId>
 				<configuration>
 					<argLine>-Duser.timezone=Asia/Kolkata</argLine>
-					<systemPropertyVariables>
-						<spring.profiles.active>local</spring.profiles.active>
-					</systemPropertyVariables>
+					<!--
+						No spring.profiles.active is forced here. Tests that need a
+						concrete environment activate it themselves with
+						@ActiveProfiles(...) so the choice travels with the test and
+						CI / local runs stay consistent.
+					-->
 				</configuration>
 			</plugin>
 		</plugins>
