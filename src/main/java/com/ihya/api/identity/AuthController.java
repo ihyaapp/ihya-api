@@ -19,12 +19,11 @@ import java.util.UUID;
  * {@code /auth/login} call, and a successful {@code /auth/refresh} returns a
  * fresh access/refresh token pair.
  *
- * <p>By design there is NO exception handling here. {@link EmailAlreadyRegisteredException},
- * {@link InvalidCredentialsException} and {@link InvalidRefreshTokenException}
- * are left to propagate uncaught. Until the later {@code @ControllerAdvice}
- * commit that maps them to HTTP 409 / 401 / 401, hitting these endpoints with a
- * duplicate email, bad credentials or an invalid refresh token surfaces as a
- * raw HTTP 500.
+ * <p>There is deliberately no {@code try/catch} here. {@link EmailAlreadyRegisteredException},
+ * {@link InvalidCredentialsException}, {@link InvalidRefreshTokenException} and
+ * {@code @Valid} failures propagate uncaught and are turned into clean
+ * {@link ErrorResponse} JSON (409 / 401 / 401 / 400) by
+ * {@link GlobalExceptionHandler}.
  */
 @RestController
 @RequestMapping("/auth")
