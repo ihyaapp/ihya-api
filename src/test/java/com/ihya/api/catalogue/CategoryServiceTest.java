@@ -127,6 +127,80 @@ class CategoryServiceTest {
     }
 
     // ------------------------------------------------------------------
+    // update()
+    // ------------------------------------------------------------------
+
+    @Test
+    void update_validInput_appliesTrimmedChangesAndPersists() {
+        UUID id = UUID.randomUUID();
+        Category existing = categoryWithId(id, "Prayer", "old description");
+        when(categoryRepository.findById(id)).thenReturn(Optional.of(existing));
+        when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+        ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
+
+        Category result = categoryService.update(id, "  Salah  ", "new description");
+
+        verify(categoryRepository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getName()).isEqualTo("Salah");
+        assertThat(captor.getValue().getDescription()).isEqualTo("new description");
+        assertThat(result).isSameAs(existing);
+    }
+
+    @Test
+    void update_unknownId_throwsCategoryNotFoundExceptionAndDoesNotPersist() {
+        UUID id = UUID.randomUUID();
+        when(categoryRepository.findById(id)).thenReturn(Optional.empty());
+
+        Throwable thrown = catchThrowable(() -> categoryService.update(id, "Salah", "desc"));
+
+        assertThat(thrown)
+                .isInstanceOf(CategoryNotFoundException.class)
+                .hasMessageContaining(id.toString());
+        verify(categoryRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void update_blankName_throwsIllegalArgumentExceptionAndDoesNotPersist() {
+        UUID id = UUID.randomUUID();
+        when(categoryRepository.findById(id)).thenReturn(Optional.of(categoryWithId(id, "Prayer", null)));
+
+        Throwable thrown = catchThrowable(() -> categoryService.update(id, "   ", "desc"));
+
+        assertThat(thrown)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("name must not be blank");
+        verify(categoryRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void update_renameToExistingName_throwsCategoryNameAlreadyExistsException() {
+        UUID id = UUID.randomUUID();
+        when(categoryRepository.findById(id)).thenReturn(Optional.of(categoryWithId(id, "Prayer", null)));
+        when(categoryRepository.saveAndFlush(any(Category.class))).thenThrow(new DataIntegrityViolationException(
+                "could not execute statement [ERROR: duplicate key value violates unique "
+                        + "constraint \"categories_name_key\"]"));
+
+        Throwable thrown = catchThrowable(() -> categoryService.update(id, "Fasting", "desc"));
+
+        assertThat(thrown)
+                .isInstanceOf(CategoryNameAlreadyExistsException.class)
+                .hasMessageContaining("Fasting");
+    }
+
+    @Test
+    void update_unrelatedIntegrityViolation_propagatesUnchanged() {
+        UUID id = UUID.randomUUID();
+        DataIntegrityViolationException dbError = new DataIntegrityViolationException(
+                "could not execute statement [ERROR: some other constraint]");
+        when(categoryRepository.findById(id)).thenReturn(Optional.of(categoryWithId(id, "Prayer", null)));
+        when(categoryRepository.saveAndFlush(any(Category.class))).thenThrow(dbError);
+
+        Throwable thrown = catchThrowable(() -> categoryService.update(id, "Salah", "desc"));
+
+        assertThat(thrown).isSameAs(dbError);
+    }
+
+    // ------------------------------------------------------------------
     // getAll()
     // ------------------------------------------------------------------
 

@@ -194,6 +194,81 @@ class SunnahServiceTest {
     }
 
     // ------------------------------------------------------------------
+    // update()
+    // ------------------------------------------------------------------
+
+    @Test
+    void update_validInput_appliesTrimmedChangesReassignsCategoryAndPersists() {
+        UUID id = UUID.randomUUID();
+        UUID newCategoryId = UUID.randomUUID();
+        Sunnah existing = sunnahWithId(id);
+        Category newCategory = new Category("Fasting", null);
+        when(sunnahRepository.findById(id)).thenReturn(Optional.of(existing));
+        when(categoryRepository.findById(newCategoryId)).thenReturn(Optional.of(newCategory));
+        when(sunnahRepository.save(any(Sunnah.class))).thenAnswer(inv -> inv.getArgument(0));
+        ArgumentCaptor<Sunnah> captor = ArgumentCaptor.forClass(Sunnah.class);
+
+        Sunnah result = sunnahService.update(id, "  New Title  ", "  New Desc  ",
+                "  New Action  ", "  Muslim 1  ", newCategoryId);
+
+        verify(sunnahRepository).save(captor.capture());
+        Sunnah saved = captor.getValue();
+        assertThat(saved.getTitle()).isEqualTo("New Title");
+        assertThat(saved.getDescription()).isEqualTo("New Desc");
+        assertThat(saved.getAction()).isEqualTo("New Action");
+        assertThat(saved.getReference()).isEqualTo("Muslim 1");
+        assertThat(saved.getCategory()).isSameAs(newCategory);
+        assertThat(result).isSameAs(existing);
+    }
+
+    @Test
+    void update_unknownSunnahId_throwsSunnahNotFoundExceptionAndDoesNotPersist() {
+        UUID id = UUID.randomUUID();
+        when(sunnahRepository.findById(id)).thenReturn(Optional.empty());
+
+        Throwable thrown = catchThrowable(() ->
+                sunnahService.update(id, "Title", "Desc", "Action", null, UUID.randomUUID()));
+
+        assertThat(thrown)
+                .isInstanceOf(SunnahNotFoundException.class)
+                .hasMessageContaining(id.toString());
+        verify(sunnahRepository, never()).save(any());
+        verifyNoInteractions(categoryRepository);
+    }
+
+    @Test
+    void update_nonexistentCategoryId_throwsCategoryNotFoundExceptionAndDoesNotPersist() {
+        UUID id = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
+        when(sunnahRepository.findById(id)).thenReturn(Optional.of(sunnahWithId(id)));
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.empty());
+
+        Throwable thrown = catchThrowable(() ->
+                sunnahService.update(id, "Title", "Desc", "Action", null, categoryId));
+
+        assertThat(thrown)
+                .isInstanceOf(CategoryNotFoundException.class)
+                .hasMessageContaining(categoryId.toString());
+        verify(sunnahRepository, never()).save(any());
+    }
+
+    @Test
+    void update_blankTitle_throwsIllegalArgumentExceptionAndDoesNotPersist() {
+        UUID id = UUID.randomUUID();
+        UUID categoryId = UUID.randomUUID();
+        when(sunnahRepository.findById(id)).thenReturn(Optional.of(sunnahWithId(id)));
+        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(new Category("Fasting", null)));
+
+        Throwable thrown = catchThrowable(() ->
+                sunnahService.update(id, "  ", "Desc", "Action", null, categoryId));
+
+        assertThat(thrown)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("title must not be blank");
+        verify(sunnahRepository, never()).save(any());
+    }
+
+    // ------------------------------------------------------------------
     // delete()
     // ------------------------------------------------------------------
 
