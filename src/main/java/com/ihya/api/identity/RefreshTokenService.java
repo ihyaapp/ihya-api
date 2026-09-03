@@ -1,6 +1,7 @@
 package com.ihya.api.identity;
 
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -55,6 +56,21 @@ public class RefreshTokenService {
         }
     }
 
+    /**
+     * Rotates a refresh token: the presented token is revoked and a replacement
+     * access/refresh pair is issued as a single unit of work.
+     *
+     * <p>{@code @Transactional} so the revoke of the old token and the insert of
+     * the new one commit together. Without it, a crash between the two writes
+     * leaves the caller holding a revoked token and no replacement — an
+     * unrecoverable logout.
+     *
+     * <p>{@code noRollbackFor} the reuse-detection exception deliberately: that
+     * branch calls {@link #revokeAllForUser} and then throws, and the mass
+     * revocation is the security response to a suspected stolen token — it must
+     * be committed, not unwound along with the exception.
+     */
+    @Transactional(noRollbackFor = InvalidRefreshTokenException.class)
     public RefreshResult validateAndRotate(String rawToken) {
         String hashedToken = hashToken(rawToken);
         RefreshToken existingToken = refreshTokenRepository.findByTokenHash(hashedToken)
@@ -73,7 +89,8 @@ public class RefreshTokenService {
             throw new InvalidRefreshTokenException("Refresh token expired");
         }
 
-        // Valid token: revoke it, then issue its replacement pair.
+        // Valid token: revoke it, then issue its replacement pair. Both writes
+        // are in the one transaction opened by this method — all or nothing.
         existingToken.revoke();
         refreshTokenRepository.save(existingToken);
 
