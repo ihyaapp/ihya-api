@@ -36,10 +36,15 @@ public class SecurityConfig {
      *   <li>{@link JwtAuthenticationFilter} runs before the username/password
      *       filter so a valid bearer token is already in the
      *       {@code SecurityContext} by the time authorization is checked.</li>
+     *   <li>{@link RestAuthenticationEntryPoint} turns an unauthenticated hit on
+     *       a protected route into the project's standard {@link ErrorResponse}
+     *       JSON body, instead of Spring Security's bare default 401.</li>
      * </ul>
      */
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+                                                   JwtService jwtService,
+                                                   RestAuthenticationEntryPoint authenticationEntryPoint) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -47,6 +52,7 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers("/auth/**").permitAll()
                         .anyRequest().authenticated())
+                .exceptionHandling(ex -> ex.authenticationEntryPoint(authenticationEntryPoint))
                 .addFilterBefore(new JwtAuthenticationFilter(jwtService),
                         UsernamePasswordAuthenticationFilter.class);
 
