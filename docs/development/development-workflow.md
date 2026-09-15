@@ -211,6 +211,37 @@ Confirm activation by checking the Spring Boot startup banner in test output for
 The following 1 profile is active: "local"
 ```
 
+## 6.1 Running the App Locally (`spring-boot:run`)
+
+The Surefire `pom.xml` configuration above only affects the forked test JVM. Running
+the app itself is a separate case with its own gotcha: `spring-boot:run` does not read
+that Surefire config at all, and profile activation must be passed on the command line
+every time:
+
+```bash
+export DB_PASSWORD=<your_password>
+./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+```
+
+Both are required. `application.yml` (the default profile) intentionally has no
+datasource configuration — the real `spring.datasource.url`/username/password live in
+`application-local.yml`, which only loads when the `local` profile is active. Skip the
+`-Dspring-boot.run.profiles=local` flag and startup fails with:
+
+```text
+Failed to determine a suitable driver class
+```
+
+This message is misleading — it looks like a driver/dependency problem, but the actual
+cause is that no `spring.datasource.url` was ever loaded, because no profile was active.
+Confirm the active profile in the startup banner before assuming anything else is wrong:
+
+```text
+No active profile set, falling back to 1 default profile: "default"
+```
+
+is the tell that `-Dspring-boot.run.profiles=local` was omitted.
+
 ---
 
 # 7. Database Verification
@@ -662,6 +693,18 @@ volume — and the old baked-in password — intact.
 This failure mode looks identical to a genuine credential typo or port mismatch.
 Follow Section 17's layer-by-layer isolation before assuming this is the cause —
 confirm the password values actually match first, and only then suspect a stale volume.
+
+## Missing Profile on `spring-boot:run`
+
+```text
+Failed to determine a suitable driver class
+```
+
+on `./mvnw spring-boot:run` almost always means no profile was active, not a missing
+driver dependency or a Docker/Postgres problem. `application.yml` has no datasource
+block by design — `application-local.yml` supplies it, and only loads when
+`-Dspring-boot.run.profiles=local` is passed explicitly (see Section 6.1). Check the
+startup banner for the active profile before touching Docker or credentials.
 
 ## Flyway
 
