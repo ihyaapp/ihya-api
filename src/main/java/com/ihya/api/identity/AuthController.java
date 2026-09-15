@@ -62,6 +62,18 @@ public class AuthController {
         refreshTokenService.revokeToken(request.refreshToken());
     }
 
+    @PostMapping("/forgot-password")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        userService.forgotPassword(request.email());
+    }
+
+    @PostMapping("/reset-password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        userService.resetPassword(request.token(), request.newPassword());
+    }
+
     /**
      * Maps a user id + service-layer {@link AuthTokens} pair onto the wire
      * contract, converting the access-token lifetime from minutes

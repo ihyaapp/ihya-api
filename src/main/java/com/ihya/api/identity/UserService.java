@@ -2,6 +2,8 @@ package com.ihya.api.identity;
 
 import com.ihya.api.profile.Profile;
 import com.ihya.api.profile.ProfileService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -17,11 +19,14 @@ import java.util.UUID;
 @Service
 public class UserService {
 
+    private static final Logger log = LoggerFactory.getLogger(UserService.class);
+
     private final UserRepository userRepository;
     private final ProfileService profileService;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
+    private final PasswordResetTokenService passwordResetTokenService;
     private final JwtProperties jwtProperties;
 
 
@@ -29,12 +34,14 @@ public class UserService {
                        ProfileService profileService,
                        PasswordEncoder passwordEncoder,JwtService jwtService,
                        RefreshTokenService refreshTokenService,
+                       PasswordResetTokenService passwordResetTokenService,
                        JwtProperties jwtProperties) {
         this.userRepository = userRepository;
         this.profileService = profileService;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
+        this.passwordResetTokenService = passwordResetTokenService;
         this.jwtProperties = jwtProperties;
     }
 
@@ -116,8 +123,33 @@ public class UserService {
     public void deleteMe(UUID userId) {
         User user = getById(userId);
         refreshTokenService.deleteAllForUser(userId);
+        passwordResetTokenService.deleteAllForUser(userId);
         profileService.deleteProfile(userId);
         userRepository.delete(user);
+    }
+
+    public void forgotPassword(String email) {
+        findByEmail(email).ifPresent(user -> {
+            String rawToken = passwordResetTokenService.issueResetToken(user.getId());
+            // Stub until an email provider (SES/Postmark/etc.) is chosen — see
+            // docs/api-contract.md's open decisions. Logging the raw token
+            // locally is how this endpoint is tested manually until then.
+            log.info("Password reset token for {}: {}", user.getEmail(), rawToken);
+        });
+        // No else branch: an unregistered email must produce the exact same
+        // outcome (202, nothing logged tied to it) as a registered one — this
+        // is what keeps the endpoint from leaking which emails have accounts.
+    }
+
+    @Transactional
+    public void resetPassword(String rawToken, String newPassword) {
+        UUID userId = passwordResetTokenService.validateAndConsume(rawToken);
+        User user = getById(userId);
+        user.setPasswordHash(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        // Resetting the password is a security-sensitive event — kill every
+        // existing session so a stolen device/token can't keep using the old login.
+        refreshTokenService.revokeAllForUser(userId);
     }
 
     public Optional<User> findByEmail(String email) {

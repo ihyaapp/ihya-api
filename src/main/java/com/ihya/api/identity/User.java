@@ -88,4 +88,8 @@ public class User {
     public void setTimezone(String timezone) {
         this.timezone = timezone;
     }
+
+    public void setPasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
 }
