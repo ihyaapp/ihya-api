@@ -2,8 +2,11 @@ package com.ihya.api.identity;
 
 import com.ihya.api.profile.Profile;
 import com.ihya.api.profile.ProfileService;
+import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -47,5 +50,11 @@ public class UserController {
         Profile profile = profileService.getProfile(userId);
         List<String> interests = profileService.getInterestSlugs(userId);
         return MeResponse.from(user, profile, interests);
+    }
+
+    @PatchMapping("/me")
+    public MeResponse updateMe(@AuthenticationPrincipal UUID userId, @Valid @RequestBody UpdateMeRequest request) {
+        UpdateMeResult result = userService.updateMe(userId, request);
+        return MeResponse.from(result.user(), result.profile(), result.interests());
     }
 }

@@ -40,4 +40,27 @@ public class ProfileServiceImpl implements ProfileService {
                 .map(UserInterest::getCategorySlug)
                 .toList();
     }
+
+    @Override
+    public Profile updateProfile(UUID userId, String name, Boolean personalizePromptDismissed, List<String> interests) {
+        Profile profile = getProfile(userId);
+        if (name != null) {
+            profile.setName(name);
+        }
+        if (personalizePromptDismissed != null) {
+            profile.setPersonalizePromptDismissed(personalizePromptDismissed);
+        }
+        Profile savedProfile = profileRepository.save(profile);
+
+        if (interests != null) {
+            userInterestRepository.deleteAllByUserId(userId);
+            List<UserInterest> userInterests = interests.stream()
+                    .distinct()
+                    .map(slug -> new UserInterest(userId, slug))
+                    .toList();
+            userInterestRepository.saveAll(userInterests);
+        }
+
+        return savedProfile;
+    }
 }

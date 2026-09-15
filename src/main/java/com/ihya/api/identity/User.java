@@ -80,4 +80,12 @@ public class User {
     public String getTimezone() {
         return timezone;
     }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public void setTimezone(String timezone) {
+        this.timezone = timezone;
+    }
 }

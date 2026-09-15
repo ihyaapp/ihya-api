@@ -1,11 +1,15 @@
 package com.ihya.api.identity;
 
+import com.ihya.api.profile.Profile;
 import com.ihya.api.profile.ProfileService;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DateTimeException;
+import java.time.ZoneId;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
@@ -70,6 +74,42 @@ public class UserService {
 
         AuthTokens tokens = new AuthTokens(accessToken, refreshToken, jwtProperties.getAccessTokenExpiryMinutes());
         return new RegistrationResult(savedUser, tokens);
+    }
+
+    @Transactional
+    public UpdateMeResult updateMe(UUID userId, UpdateMeRequest request) {
+        User user = getById(userId);
+
+        String normalizedEmail = null;
+        if (request.email() != null) {
+            normalizedEmail = normalizeEmail(request.email());
+            user.setEmail(normalizedEmail);
+        }
+
+        if (request.timezone() != null) {
+            try {
+                ZoneId.of(request.timezone());
+            } catch (DateTimeException ex) {
+                throw new IllegalArgumentException("Invalid timezone: " + request.timezone(), ex);
+            }
+            user.setTimezone(request.timezone());
+        }
+
+        User savedUser;
+        try {
+            savedUser = userRepository.saveAndFlush(user);
+        } catch (DataIntegrityViolationException ex) {
+            if (isEmailUniqueViolation(ex)) {
+                throw new EmailAlreadyRegisteredException(normalizedEmail);
+            }
+            throw ex;
+        }
+
+        Profile updatedProfile = profileService.updateProfile(
+                userId, request.name(), request.personalizePromptDismissed(), request.interests());
+        List<String> interests = profileService.getInterestSlugs(userId);
+
+        return new UpdateMeResult(savedUser, updatedProfile, interests);
     }
 
     public Optional<User> findByEmail(String email) {
