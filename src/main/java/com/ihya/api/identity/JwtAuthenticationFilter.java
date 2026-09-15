@@ -5,6 +5,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -25,18 +27,27 @@ import java.util.UUID;
  * authentication on protected routes is the {@link SecurityConfig} filter
  * chain's job, not this filter's.
  *
- * <p>There is no role or permission model in the project yet, so the resulting
- * {@link UsernamePasswordAuthenticationToken} carries the user id as its
- * principal and an empty authority list.
+ * <p>The resulting {@link UsernamePasswordAuthenticationToken} carries the
+ * user id as its principal and a single {@code ROLE_<Role>} authority (e.g.
+ * {@code ROLE_ADMIN}), looked up fresh from {@link UserRepository} on every
+ * request rather than embedded in the JWT — a demoted admin loses write access
+ * to the catalogue immediately, instead of only once their 15-minute access
+ * token expires. {@code @EnableMethodSecurity} plus
+ * {@code @PreAuthorize("hasRole('ADMIN')")} on the catalogue write endpoints
+ * is what actually reads this authority (see {@link SecurityConfig}). A token
+ * whose user id no longer exists (account deleted after the token was issued)
+ * authenticates with no authorities, same as before this lookup existed.
  */
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtService jwtService;
+    private final UserRepository userRepository;
 
-    public JwtAuthenticationFilter(JwtService jwtService) {
+    public JwtAuthenticationFilter(JwtService jwtService, UserRepository userRepository) {
         this.jwtService = jwtService;
+        this.userRepository = userRepository;
     }
 
     @Override
@@ -48,8 +59,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (token != null && SecurityContextHolder.getContext().getAuthentication() == null) {
             try {
                 UUID userId = jwtService.extractUserId(token);
+                List<GrantedAuthority> authorities = authoritiesFor(userId);
                 UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(userId, null, List.of());
+                        new UsernamePasswordAuthenticationToken(userId, null, authorities);
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
             } catch (Exception e) {
@@ -61,6 +73,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private List<GrantedAuthority> authoritiesFor(UUID userId) {
+        return userRepository.findById(userId)
+                .<List<GrantedAuthority>>map(user -> List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole())))
+                .orElse(List.of());
     }
 
     private static String extractBearerToken(HttpServletRequest request) {

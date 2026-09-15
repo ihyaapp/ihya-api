@@ -1,9 +1,11 @@
 package com.ihya.api.identity;
 
+import com.ihya.api.common.web.RestAccessDeniedHandler;
 import com.ihya.api.common.web.RestAuthenticationEntryPoint;
 import jakarta.servlet.DispatcherType;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -12,7 +14,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+/**
+ * {@code @EnableMethodSecurity} turns on {@code @PreAuthorize} support, used by
+ * the catalogue write endpoints ({@code @PreAuthorize("hasRole('ADMIN')")} on
+ * {@code CategoryController} / {@code SunnahController}) to gate admin-only
+ * writes independently of the URL-based rules below, which only require any
+ * authenticated user.
+ */
 @Configuration
+@EnableMethodSecurity
 public class SecurityConfig {
 
     @Bean
@@ -40,13 +50,17 @@ public class SecurityConfig {
      *   <li>{@link RestAuthenticationEntryPoint} turns an unauthenticated hit on
      *       a protected route into the project's standard
      *       {@link com.ihya.api.common.web.ErrorResponse} JSON body, instead of
-     *       Spring Security's bare default 401.</li>
+     *       Spring Security's bare default 401. {@link RestAccessDeniedHandler}
+     *       does the same for a 403 from a failed {@code @PreAuthorize} check
+     *       (e.g. a non-admin hitting a catalogue write).</li>
      * </ul>
      */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    JwtService jwtService,
-                                                   RestAuthenticationEntryPoint authenticationEntryPoint) throws Exception {
+                                                   UserRepository userRepository,
+                                                   RestAuthenticationEntryPoint authenticationEntryPoint,
+                                                   RestAccessDeniedHandler accessDeniedHandler) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -54,8 +68,10 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers("/v1/auth/**").permitAll()
                         .anyRequest().authenticated())
-                .exceptionHandling(ex -> ex.authenticationEntryPoint(authenticationEntryPoint))
-                .addFilterBefore(new JwtAuthenticationFilter(jwtService),
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
+                .addFilterBefore(new JwtAuthenticationFilter(jwtService, userRepository),
                         UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
