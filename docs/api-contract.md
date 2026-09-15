@@ -167,8 +167,9 @@ Status legend: **✅ built** · **🟡 partial** · **⬜ not started**
 | `POST /auth/register` | `{ email, password, timezone? }` → `{ accessToken, expiresIn, refreshToken, userId }` | `201` · `400` · `409` | ✅ (add optional `timezone`) |
 | `POST /auth/login` | `{ email, password }` → same | `200` · `400` · `401` | ✅ |
 | `POST /auth/refresh` | `{ refreshToken }` → same (rotated) | `200` · `400` · `401` | ✅ |
-| `POST /auth/logout` | `{ refreshToken }` → *(empty)* | `204` · `400` | ⬜ (`RefreshTokenService.revokeToken` exists — wire a controller) |
-| `POST /auth/forgot-password` | `{ email }` → *(empty)* | `202` always (no account-existence leak) | ⬜ (email provider is an open decision — a `202` no-op is acceptable for v1) |
+| `POST /auth/logout` | `{ refreshToken }` → *(empty)* | `204` · `400` | ✅ |
+| `POST /auth/forgot-password` | `{ email }` → *(empty)* | `202` always (no account-existence leak) | ✅ (token generated + hashed + stored with a 30-min expiry; email delivery is the only stubbed part — logs the raw token server-side until an email provider is chosen) |
+| `POST /auth/reset-password` | `{ token, newPassword }` → *(empty)* | `204` · `400` (invalid/expired/used token, or `@Valid` failure) | ✅ (single-use — consuming the token revokes it; also revokes every active refresh token for the user, forcing re-login everywhere) |
 
 `password`: min 8. `email`: format-validated, normalized (trim + lowercase),
 unique. Unknown-email and wrong-password return an identical `401` body.
@@ -179,7 +180,7 @@ unique. Unknown-email and wrong-password return an identical `401` body.
 |---|---|---|---|
 | `GET /me` | → `Me` | `200` · `401` | 🟡 (`MeResponse` today is `{id,email,createdAt}` — extend with `name`, `timezone`, `interests`, `personalizePromptDismissed`; compose from `UserService` + `ProfileService`) |
 | `PATCH /me` | `{ name?, email?, timezone?, interests?, personalizePromptDismissed? }` → `Me` | `200` · `400` · `401` · `409` (email taken) | ⬜ |
-| `DELETE /me` | → *(empty)* | `202` · `401` | ⬜ (soft-delete + enqueue purge; hard delete acceptable for v1 — open decision) |
+| `DELETE /me` | → *(empty)* | `202` · `401` | ✅ (hard delete for v1 — see §5) |
 | `GET /me/progress` | → `Progress` | `200` · `401` | ⬜ |
 | `GET /me/notification-preferences` | → `NotificationPreferences` | `200` · `401` | ⬜ |
 | `PATCH /me/notification-preferences` | partial `NotificationPreferences` → full | `200` · `400` · `401` | ⬜ |
@@ -279,8 +280,8 @@ shippable.
    `Role` into `GrantedAuthority` in `JwtAuthenticationFilter`).
 5. **Seed the catalogue (V9 or a runner).** Import the aligned spreadsheet from
    `ihya-mobile/docs/seed-data-spec.md`.
-6. **Auth gaps.** `POST /auth/logout`, `POST /auth/forgot-password` (202 no-op
-   acceptable for v1).
+6. **Auth gaps.** `POST /auth/logout`, `POST /auth/forgot-password` +
+   `POST /auth/reset-password` — **done** (V8 `password_reset_tokens`).
 7. **Notification preferences + push tokens (V10).**
    `notification_preferences (user_id PK, daily_reminder, streak_reminder,
    weekly_summary, reminder_time time)`, `push_tokens (id, user_id,
@@ -304,8 +305,8 @@ shippable.
 
 | Area | State | Next |
 |---|---|---|
-| Identity (register / login / refresh / me) | ✅ shipped | `/v1` prefix; extend `Me` |
-| Auth logout / forgot-password | ⬜ | small, do with the `/v1` change |
+| Identity (register / login / refresh / me / delete) | ✅ shipped | `/v1` prefix |
+| Auth logout / forgot-password / reset-password | ✅ shipped | — |
 | Profile / preferences / push tokens | ⬜ | steps 2, 7 |
 | Catalogue (entities + services) | 🟡 no HTTP | steps 3–5 |
 | Daily practice | ⬜ empty package | step 8 — the core product |
@@ -320,10 +321,12 @@ shippable.
   not Cognito.
 - **Hosting:** AWS. RDS Postgres. Compute shape (App Runner / ECS Fargate /
   Elastic Beanstalk vs Lambda + API Gateway) — **open**.
-- **`forgot-password` email provider** (SES, Postmark, …) — **open**; `202`
-  no-op until chosen.
-- **`DELETE /me`** hard delete vs soft-delete + async purge — **open**; hard
-  delete acceptable for v1.
+- **`forgot-password` email provider** (SES, Postmark, …) — **open**; the
+  reset-token lifecycle (generate/hash/expire/consume) is built, only the
+  actual email send is stubbed (logged server-side) until a provider is chosen.
+- **`DELETE /me`** hard delete vs soft-delete + async purge — **resolved for
+  v1**: hard delete, built. Revisit soft-delete + async purge if/when this
+  needs real user-facing recoverability.
 - **Per-user timezone capture:** client sends IANA `timezone` on register and
   syncs it via `PATCH /me`; server default `UTC` — **confirm the mobile side
   sends `Intl.DateTimeFormat().resolvedOptions().timeZone`**.
