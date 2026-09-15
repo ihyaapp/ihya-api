@@ -1,0 +1,507 @@
+openapi: 3.0.3
+info:
+  title: Ihya Catalogue API
+  description: >
+    The Sunnah content catalogue: categories and the Sunnahs within them.
+
+
+    Reads are open to any authenticated user. Writes (create/update/delete)
+    require the ADMIN role — see SecurityConfig's @EnableMethodSecurity and
+    the @PreAuthorize("hasRole('ADMIN')") on CategoryController /
+    SunnahController. Every entity is keyed to clients by a stable, human
+    facing `slug`, never its internal UUID id (docs/api-contract.md §0
+    "Category reference").
+  version: 1.0.0
+
+paths:
+  /v1/categories:
+    get:
+      summary: List every category
+      tags: [Catalogue]
+      security:
+        - bearerAuth: []
+      description: >
+        Returns the full catalogue of categories as one list — small and
+        long-cached, not paginated. sunnahCount is derived at query time.
+      responses:
+        '200':
+          description: Every category, active and coming-soon.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CategoryResponse'
+        '401':
+          description: Bearer token missing, malformed, expired, or naming a user that no longer exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      summary: Create a category (ADMIN only)
+      tags: [Catalogue]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryCreateRequest'
+      responses:
+        '201':
+          description: Category created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryResponse'
+        '400':
+          description: Request validation failed, or status was not "active" / "coming-soon".
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the caller is not an ADMIN.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: A category with that name or slug already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/categories/{slug}:
+    patch:
+      summary: Partially update a category (ADMIN only)
+      tags: [Catalogue]
+      security:
+        - bearerAuth: []
+      description: >
+        Every field is optional; omitted/null fields are left unchanged.
+        `slug` itself is not patchable here — it is the stable, client-facing
+        key and is never re-slugged once created.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryUpdateRequest'
+      responses:
+        '200':
+          description: Updated category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryResponse'
+        '400':
+          description: Request validation failed, or status was not "active" / "coming-soon".
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the caller is not an ADMIN.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No category exists with that slug.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: The new name already belongs to another category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/sunnahs:
+    get:
+      summary: List every Sunnah
+      tags: [Catalogue]
+      security:
+        - bearerAuth: []
+      description: >
+        Returns the full catalogue of Sunnahs as one list, in the curated
+        default order (category sort_order, then creation order) — small and
+        long-cached, not paginated.
+      responses:
+        '200':
+          description: Every Sunnah in the catalogue.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SunnahResponse'
+        '401':
+          description: Bearer token missing, malformed, expired, or naming a user that no longer exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      summary: Create a Sunnah (ADMIN only)
+      tags: [Catalogue]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SunnahCreateRequest'
+      responses:
+        '201':
+          description: Sunnah created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SunnahResponse'
+        '400':
+          description: Request validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the caller is not an ADMIN.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: A Sunnah with that slug already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/sunnahs/{slug}:
+    get:
+      summary: Get a single Sunnah by slug
+      tags: [Catalogue]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The requested Sunnah.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SunnahResponse'
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No Sunnah exists with that slug.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      summary: Partially update a Sunnah (ADMIN only)
+      tags: [Catalogue]
+      security:
+        - bearerAuth: []
+      description: >
+        Every field is optional; omitted/null fields are left unchanged.
+        `slug` itself is not patchable here, for the same reason as
+        categories. Passing `tags` replaces the whole list rather than
+        merging into it.
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SunnahUpdateRequest'
+      responses:
+        '200':
+          description: Updated Sunnah.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SunnahResponse'
+        '400':
+          description: Request validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the caller is not an ADMIN.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No Sunnah exists with that slug, or categorySlug names no category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Another Sunnah already has the requested slug (not applicable — slug is immutable).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Delete a Sunnah (ADMIN only)
+      tags: [Catalogue]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Sunnah deleted.
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Authenticated, but the caller is not an ADMIN.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No Sunnah exists with that slug.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token issued by /v1/auth/register, /v1/auth/login or /v1/auth/refresh.
+
+  schemas:
+    CategoryResponse:
+      type: object
+      properties:
+        slug:
+          type: string
+          example: faith-worship
+        name:
+          type: string
+          example: Faith & Worship
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, coming-soon]
+        sunnahCount:
+          type: integer
+          description: Derived — the number of Sunnahs currently in this category.
+
+    CategoryCreateRequest:
+      type: object
+      required: [slug, name]
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, coming-soon]
+          description: Defaults to "active" when omitted.
+
+    CategoryUpdateRequest:
+      type: object
+      description: All fields optional; null/omitted means "leave unchanged".
+      properties:
+        name:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, coming-soon]
+          nullable: true
+
+    SunnahResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+          example: use-the-miswak
+        title:
+          type: string
+        categorySlug:
+          type: string
+          example: health-cleanliness
+        source:
+          type: string
+          example: Sahih al-Bukhari 887
+        description:
+          type: string
+        reflection:
+          type: string
+          description: The "try this today" instruction.
+        arabicText:
+          type: string
+          nullable: true
+        prompt:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+
+    SunnahCreateRequest:
+      type: object
+      required: [slug, title, categorySlug, source, description, reflection]
+      properties:
+        slug:
+          type: string
+        title:
+          type: string
+        categorySlug:
+          type: string
+        source:
+          type: string
+        description:
+          type: string
+        reflection:
+          type: string
+        arabicText:
+          type: string
+          nullable: true
+        prompt:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+
+    SunnahUpdateRequest:
+      type: object
+      description: All fields optional; null/omitted means "leave unchanged".
+      properties:
+        title:
+          type: string
+          nullable: true
+        categorySlug:
+          type: string
+          nullable: true
+        source:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        reflection:
+          type: string
+          nullable: true
+        arabicText:
+          type: string
+          nullable: true
+        prompt:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          nullable: true
+          items:
+            type: string
+
+    ErrorResponse:
+      type: object
+      description: >
+        The single error shape used by every non-2xx response in this API,
+        produced by GlobalExceptionHandler, CatalogueExceptionHandler,
+        RestAuthenticationEntryPoint and RestAccessDeniedHandler.
+      properties:
+        status:
+          type: integer
+          description: HTTP status code, repeated in the body.
+        error:
+          type: string
+          description: HTTP status reason phrase, e.g. "Forbidden".
+        message:
+          type: string
+          description: Human-readable detail.
+        timestamp:
+          type: string
+          format: date-time
