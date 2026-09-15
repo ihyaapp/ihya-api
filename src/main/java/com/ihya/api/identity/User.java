@@ -33,6 +33,9 @@ public class User {
     @Column(name = "role", nullable = false)
     private Role role;
 
+    @Column(name = "timezone", nullable = false)
+    private String timezone;
+
     // Required by Hibernate — used internally when loading rows from the DB.
     // You will not call this yourself.
     protected User() {
@@ -48,6 +51,9 @@ public class User {
         // registration cannot end up as ADMIN. Elevating an account is a
         // deliberate out-of-band DB change, not something request data can do.
         this.role = Role.USER;
+        // Matches the DB column default — Hibernate's INSERT sends this value
+        // explicitly, so it must be set here rather than left null.
+        this.timezone = "UTC";
     }
 
     // Getters — no setters for id/email/createdAt (explained below)
@@ -69,5 +75,9 @@ public class User {
 
     public Role getRole() {
         return role;
+    }
+
+    public String getTimezone() {
+        return timezone;
     }
 }

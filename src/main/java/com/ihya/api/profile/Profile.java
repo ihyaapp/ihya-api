@@ -18,6 +18,9 @@ public class Profile {
     @Column(name = "name")
     private String name;
 
+    @Column(name = "personalize_prompt_dismissed", nullable = false)
+    private boolean personalizePromptDismissed;
+
     protected Profile() {
         // required by Hibernate
     }
@@ -25,6 +28,7 @@ public class Profile {
     public Profile(UUID userId) {
         this.userId = userId;
         this.name = null;
+        this.personalizePromptDismissed = false;
     }
 
     public UUID getUserId() {
@@ -37,6 +41,14 @@ public class Profile {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public boolean isPersonalizePromptDismissed() {
+        return personalizePromptDismissed;
+    }
+
+    public void setPersonalizePromptDismissed(boolean personalizePromptDismissed) {
+        this.personalizePromptDismissed = personalizePromptDismissed;
     }
 
 }
