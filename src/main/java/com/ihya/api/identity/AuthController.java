@@ -56,6 +56,12 @@ public class AuthController {
         return toAuthResponse(result.userId(), result.tokens());
     }
 
+    @PostMapping("/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logout(@Valid @RequestBody RefreshRequest request) {
+        refreshTokenService.revokeToken(request.refreshToken());
+    }
+
     /**
      * Maps a user id + service-layer {@link AuthTokens} pair onto the wire
      * contract, converting the access-token lifetime from minutes
