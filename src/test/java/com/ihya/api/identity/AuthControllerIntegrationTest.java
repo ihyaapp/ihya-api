@@ -1,6 +1,7 @@
 package com.ihya.api.identity;
 
 import com.ihya.api.profile.ProfileRepository;
+import com.ihya.api.profile.UserInterestRepository;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,9 +15,11 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -73,11 +76,19 @@ class AuthControllerIntegrationTest {
     private RefreshTokenRepository refreshTokenRepository;
     @Autowired
     private ProfileRepository profileRepository;
+    @Autowired
+    private UserInterestRepository userInterestRepository;
+    @Autowired
+    private PasswordResetTokenRepository passwordResetTokenRepository;
+    @Autowired
+    private PasswordResetTokenService passwordResetTokenService;
 
     @BeforeEach
     @AfterEach
     void resetDatabase() {
         refreshTokenRepository.deleteAllInBatch();
+        passwordResetTokenRepository.deleteAllInBatch();
+        userInterestRepository.deleteAllInBatch();
         profileRepository.deleteAllInBatch();
         userRepository.deleteAllInBatch();
     }
@@ -253,6 +264,153 @@ class AuthControllerIntegrationTest {
     }
 
     // ------------------------------------------------------------------
+    // Logout
+    // ------------------------------------------------------------------
+
+    @Test
+    void logout_validRefreshToken_returns204AndRevokesIt() throws Exception {
+        String registerBody = register("logout@example.com", "logout-password");
+        String refreshToken = JsonPath.read(registerBody, "$.refreshToken");
+
+        mockMvc.perform(post("/v1/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshJson(refreshToken)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshJson(refreshToken)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void logout_unknownRefreshToken_stillReturns204() throws Exception {
+        mockMvc.perform(post("/v1/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshJson("not-a-real-refresh-token")))
+                .andExpect(status().isNoContent());
+    }
+
+    // ------------------------------------------------------------------
+    // Forgot password — must not leak whether the email is registered
+    // ------------------------------------------------------------------
+
+    @Test
+    void forgotPassword_registeredEmail_returns202AndIssuesAResetToken() throws Exception {
+        String email = "forgot@example.com";
+        String registerBody = register(email, "original-password");
+        String userId = JsonPath.read(registerBody, "$.userId");
+
+        mockMvc.perform(post("/v1/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(forgotPasswordJson(email)))
+                .andExpect(status().isAccepted());
+
+        List<PasswordResetToken> tokens = passwordResetTokenRepository.findAll();
+        assertThat(tokens).hasSize(1);
+        assertThat(tokens.get(0).getUserId()).isEqualTo(UUID.fromString(userId));
+    }
+
+    @Test
+    void forgotPassword_unregisteredEmail_returns202IdenticallyAndIssuesNoToken() throws Exception {
+        mockMvc.perform(post("/v1/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(forgotPasswordJson("nobody@example.com")))
+                .andExpect(status().isAccepted());
+
+        assertThat(passwordResetTokenRepository.findAll()).isEmpty();
+    }
+
+    // ------------------------------------------------------------------
+    // Reset password
+    // ------------------------------------------------------------------
+
+    @Test
+    void resetPassword_validToken_returns204ThenAllowsLoginWithNewPasswordOnly() throws Exception {
+        String email = "reset@example.com";
+        String oldPassword = "old-password";
+        String newPassword = "new-password-123";
+        String registerBody = register(email, oldPassword);
+        String userId = JsonPath.read(registerBody, "$.userId");
+        String rawToken = passwordResetTokenService.issueResetToken(UUID.fromString(userId));
+
+        mockMvc.perform(post("/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resetPasswordJson(rawToken, newPassword)))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(authJson(email, oldPassword)))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(authJson(email, newPassword)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void resetPassword_revokesEveryActiveRefreshTokenForThatUser() throws Exception {
+        String email = "reset-sessions@example.com";
+        String registerBody = register(email, "old-password");
+        String userId = JsonPath.read(registerBody, "$.userId");
+        String refreshTokenBeforeReset = JsonPath.read(registerBody, "$.refreshToken");
+        String rawToken = passwordResetTokenService.issueResetToken(UUID.fromString(userId));
+
+        mockMvc.perform(post("/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resetPasswordJson(rawToken, "new-password-123")))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/v1/auth/refresh")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshJson(refreshTokenBeforeReset)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void resetPassword_alreadyUsedToken_returns400() throws Exception {
+        String registerBody = register("reused-token@example.com", "old-password");
+        String userId = JsonPath.read(registerBody, "$.userId");
+        String rawToken = passwordResetTokenService.issueResetToken(UUID.fromString(userId));
+        mockMvc.perform(post("/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resetPasswordJson(rawToken, "first-new-password")))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resetPasswordJson(rawToken, "second-new-password")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Invalid or expired reset token"));
+    }
+
+    @Test
+    void resetPassword_unrecognizedToken_returns400() throws Exception {
+        mockMvc.perform(post("/v1/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(resetPasswordJson("not-a-real-token", "new-password-123")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Invalid or expired reset token"));
+    }
+
+    // ------------------------------------------------------------------
+    // Delete me — hard delete
+    // ------------------------------------------------------------------
+
+    @Test
+    void deleteMe_authenticatedUser_returns202ThenTokenIsNoLongerUsable() throws Exception {
+        String registerBody = register("delete-me@example.com", "delete-password");
+        String accessToken = JsonPath.read(registerBody, "$.accessToken");
+
+        mockMvc.perform(delete("/v1/me").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isAccepted());
+
+        mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ------------------------------------------------------------------
     // Protected endpoint — RestAuthenticationEntryPoint under real HTTP
     // ------------------------------------------------------------------
 
@@ -309,5 +467,17 @@ class AuthControllerIntegrationTest {
         return """
                 {"refreshToken": "%s"}
                 """.formatted(refreshToken);
+    }
+
+    private static String forgotPasswordJson(String email) {
+        return """
+                {"email": "%s"}
+                """.formatted(email);
+    }
+
+    private static String resetPasswordJson(String token, String newPassword) {
+        return """
+                {"token": "%s", "newPassword": "%s"}
+                """.formatted(token, newPassword);
     }
 }

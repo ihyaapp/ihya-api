@@ -129,6 +129,91 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /v1/auth/logout:
+    post:
+      summary: Revoke a refresh token
+      tags: [Identity]
+      description: >
+        Revokes the presented refresh token so it can no longer be exchanged
+        via /v1/auth/refresh. Always returns 204 whether or not the token was
+        found/still valid — logging out is idempotent and never leaks whether
+        a given token existed. No bearer access token required: the refresh
+        token itself identifies which session to end.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '204':
+          description: Token revoked (or already invalid/unknown — same result either way).
+        '400':
+          description: refreshToken missing/blank, or the body was not valid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/auth/forgot-password:
+    post:
+      summary: Request a password-reset token
+      tags: [Identity]
+      description: >
+        Always returns 202, whether or not the email is registered — this
+        endpoint must never leak account existence. If the email is
+        registered, a single-use reset token is generated (SHA-256 hashed at
+        rest, 30-minute expiry) and delivered to the user.
+
+
+        Email delivery is currently stubbed: no provider (SES, Postmark, etc.)
+        has been chosen yet, so the raw token is logged server-side instead of
+        emailed. See docs/api-contract.md's open decisions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '202':
+          description: Always returned, regardless of whether the email is registered.
+        '400':
+          description: email missing/blank/malformed, or the body was not valid JSON.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/auth/reset-password:
+    post:
+      summary: Consume a reset token and set a new password
+      tags: [Identity]
+      description: >
+        Single-use: consuming the token (successfully or not) marks it used,
+        so it cannot be replayed. Also revokes every active refresh token for
+        the user, forcing re-login on every other device/session — a stolen
+        device holding an old session cannot survive a password reset.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '204':
+          description: Password changed; every existing refresh token for the user is revoked.
+        '400':
+          description: >
+            Request validation failed, or the token was not recognized,
+            already used, or expired. All three token failure modes return
+            the same generic message deliberately, to avoid telling a caller
+            more than a failed attempt should reveal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /v1/me:
     get:
       summary: Get the currently authenticated user
@@ -146,6 +231,69 @@ paths:
           description: >
             Bearer token missing, malformed, expired, or naming a user that no
             longer exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      summary: Partially update the currently authenticated user
+      tags: [Identity]
+      security:
+        - bearerAuth: []
+      description: >
+        Every field is optional; omitted/null fields are left unchanged. An
+        empty request body is a valid no-op.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMeRequest'
+      responses:
+        '200':
+          description: Updated user record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '400':
+          description: >
+            Request validation failed, or timezone was not a valid IANA zone
+            id (e.g. "Asia/Karachi").
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer token missing, malformed, expired, or naming a user that no longer exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: The requested email is already registered to another account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Permanently delete the currently authenticated user's account
+      tags: [Identity]
+      security:
+        - bearerAuth: []
+      description: >
+        Hard delete for v1 (documented scope decision, see
+        docs/api-contract.md open decisions — not soft-delete +
+        async purge). Removes user_interests, refresh_tokens,
+        password_reset_tokens, profiles, then the users row itself, all in one
+        transaction.
+      responses:
+        '202':
+          description: Account deleted.
+        '401':
+          description: Bearer token missing, malformed, expired, or naming a user that no longer exists.
           content:
             application/json:
               schema:
@@ -201,6 +349,62 @@ components:
           type: string
       example:
         refreshToken: rT0k3n-b4se64url-abc123def456
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+      example:
+        email: user@example.com
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, newPassword]
+      properties:
+        token:
+          type: string
+          description: The raw (unhashed) token issued by /v1/auth/forgot-password.
+        newPassword:
+          type: string
+          format: password
+          minLength: 8
+      example:
+        token: rT0k3n-b4se64url-abc123def456
+        newPassword: correct-horse-battery-staple
+
+    UpdateMeRequest:
+      type: object
+      description: Every field is optional; omitted/null fields are left unchanged.
+      properties:
+        name:
+          type: string
+          maxLength: 255
+          nullable: true
+        email:
+          type: string
+          format: email
+          nullable: true
+        timezone:
+          type: string
+          description: IANA timezone id, e.g. "Asia/Karachi".
+          nullable: true
+        interests:
+          type: array
+          items:
+            type: string
+          description: Replaces the full set of interest category slugs when present.
+          nullable: true
+        personalizePromptDismissed:
+          type: boolean
+          nullable: true
+      example:
+        name: Zulaikha
+        timezone: Asia/Karachi
+        interests: [faith-worship]
+        personalizePromptDismissed: true
 
     AuthResponse:
       type: object

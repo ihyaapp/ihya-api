@@ -41,6 +41,8 @@ class UserServiceTest {
     @Mock
     private RefreshTokenService refreshTokenService;
     @Mock
+    private PasswordResetTokenService passwordResetTokenService;
+    @Mock
     private JwtProperties jwtProperties;
 
     private UserService userService;
@@ -48,7 +50,7 @@ class UserServiceTest {
     @BeforeEach
     void setUp() {
         userService = new UserService(userRepository, profileService, passwordEncoder,
-                jwtService, refreshTokenService, jwtProperties);
+                jwtService, refreshTokenService, passwordResetTokenService, jwtProperties);
     }
 
     // ----------------------------------------------------------------------
@@ -310,6 +312,94 @@ class UserServiceTest {
 
         assertThat(thrown).isInstanceOf(UserNotFoundException.class);
         verifyNoInteractions(jwtService, refreshTokenService, profileService);
+    }
+
+    // ----------------------------------------------------------------------
+    // deleteMe()
+    // ----------------------------------------------------------------------
+
+    @Test
+    void deleteMe_existingUser_deletesTokensProfileThenUser() {
+        UUID userId = UUID.randomUUID();
+        User user = userWithId(userId, "gone@example.com", "stored-hash");
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+
+        userService.deleteMe(userId);
+
+        verify(refreshTokenService).deleteAllForUser(userId);
+        verify(passwordResetTokenService).deleteAllForUser(userId);
+        verify(profileService).deleteProfile(userId);
+        verify(userRepository).delete(user);
+    }
+
+    @Test
+    void deleteMe_unknownUser_throwsUserNotFoundExceptionAndDeletesNothing() {
+        UUID userId = UUID.randomUUID();
+        when(userRepository.findById(userId)).thenReturn(Optional.empty());
+
+        Throwable thrown = catchThrowable(() -> userService.deleteMe(userId));
+
+        assertThat(thrown).isInstanceOf(UserNotFoundException.class);
+        verifyNoInteractions(refreshTokenService, passwordResetTokenService, profileService);
+        verify(userRepository, never()).delete(any());
+    }
+
+    // ----------------------------------------------------------------------
+    // forgotPassword()
+    // ----------------------------------------------------------------------
+
+    @Test
+    void forgotPassword_registeredEmail_issuesResetToken() {
+        String email = "known@example.com";
+        UUID userId = UUID.randomUUID();
+        User user = userWithId(userId, email, "stored-hash");
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+
+        userService.forgotPassword(email);
+
+        verify(passwordResetTokenService).issueResetToken(userId);
+    }
+
+    @Test
+    void forgotPassword_unknownEmail_issuesNoTokenAndDoesNotLeak() {
+        when(userRepository.findByEmail("ghost@example.com")).thenReturn(Optional.empty());
+
+        userService.forgotPassword("ghost@example.com");
+
+        verifyNoInteractions(passwordResetTokenService);
+    }
+
+    // ----------------------------------------------------------------------
+    // resetPassword()
+    // ----------------------------------------------------------------------
+
+    @Test
+    void resetPassword_validToken_updatesPasswordHashAndRevokesEverySession() {
+        UUID userId = UUID.randomUUID();
+        User user = userWithId(userId, "reset@example.com", "old-hash");
+        when(passwordResetTokenService.validateAndConsume("raw-token")).thenReturn(userId);
+        when(userRepository.findById(userId)).thenReturn(Optional.of(user));
+        when(passwordEncoder.encode("new-password")).thenReturn("new-hash");
+        ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+
+        userService.resetPassword("raw-token", "new-password");
+
+        verify(userRepository).save(userCaptor.capture());
+        assertThat(userCaptor.getValue().getPasswordHash()).isEqualTo("new-hash");
+        verify(refreshTokenService).revokeAllForUser(userId);
+    }
+
+    @Test
+    void resetPassword_invalidToken_throwsAndNeverTouchesUserOrSessions() {
+        when(passwordResetTokenService.validateAndConsume("bad-token"))
+                .thenThrow(new IllegalArgumentException("Invalid or expired reset token"));
+
+        Throwable thrown = catchThrowable(() -> userService.resetPassword("bad-token", "new-password"));
+
+        assertThat(thrown).isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(refreshTokenService);
+        verify(userRepository, never()).findById(any());
+        verify(userRepository, never()).save(any());
     }
 
     // ----------------------------------------------------------------------
