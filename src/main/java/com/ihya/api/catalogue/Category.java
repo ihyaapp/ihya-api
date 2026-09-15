@@ -18,11 +18,25 @@ public class Category {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    // Stable, human-facing key. Client payloads reference a category by this,
+    // never by id (docs/api-contract.md §0 "Category reference"). Immutable
+    // once created -- see the seed-data-spec.md rule "never re-slug".
+    @Column(name = "slug", nullable = false, unique = true)
+    private String slug;
+
     @Column(name = "name", nullable = false, unique = true)
     private String name;
 
     @Column(name = "description")
     private String description;
+
+    // "active" | "coming-soon" -- mirrors the categories_status check
+    // constraint (V9); validated at the CategoryService boundary, not here.
+    @Column(name = "status", nullable = false)
+    private String status;
+
+    @Column(name = "sort_order", nullable = false)
+    private int sortOrder;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -33,21 +47,27 @@ public class Category {
     }
 
     // Used by your own code when creating a new category.
-    public Category(String name, String description) {
+    public Category(String slug, String name, String description, String status, int sortOrder) {
+        this.slug = slug;
         this.name = name;
         this.description = description;
+        this.status = status;
+        this.sortOrder = sortOrder;
         this.createdAt = Instant.now();
     }
 
     /**
      * Applies an edit from the admin catalogue. Not a raw setter: it is the one
-     * intentional mutation this entity allows, and it enforces the same
-     * non-blank rule on {@code name} that creation does. {@code name} is
-     * trimmed; {@code description} stays optional.
+     * intentional mutation this entity allows (besides {@code slug}, which is
+     * immutable), and it enforces the same non-blank rule on {@code name} that
+     * creation does. {@code name} is trimmed; {@code description} stays
+     * optional; {@code status} is expected already-validated by the caller.
      */
-    public void update(String name, String description) {
+    public void update(String name, String description, String status, int sortOrder) {
         this.name = requireName(name);
         this.description = description;
+        this.status = status;
+        this.sortOrder = sortOrder;
     }
 
     private static String requireName(String name) {
@@ -62,12 +82,24 @@ public class Category {
         return id;
     }
 
+    public String getSlug() {
+        return slug;
+    }
+
     public String getName() {
         return name;
     }
 
     public String getDescription() {
         return description;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public int getSortOrder() {
+        return sortOrder;
     }
 
     public Instant getCreatedAt() {

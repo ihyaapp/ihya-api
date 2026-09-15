@@ -18,12 +18,16 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  *   <li>{@link CategoryNotFoundException} &rarr; 404</li>
  *   <li>{@link SunnahNotFoundException} &rarr; 404</li>
  *   <li>{@link CategoryNameAlreadyExistsException} &rarr; 409</li>
+ *   <li>{@link CategorySlugAlreadyExistsException} &rarr; 409</li>
+ *   <li>{@link SunnahSlugAlreadyExistsException} &rarr; 409</li>
  * </ul>
  *
  * <p>Blank-field guards in the catalogue services throw
  * {@link IllegalArgumentException}, which stays with
  * {@code common.web.GlobalExceptionHandler} (&rarr; 400) as a module-agnostic
- * concern.
+ * concern. A write attempted without the {@code ADMIN} role is rejected by
+ * Spring Security's own {@code @PreAuthorize} enforcement (&rarr; 403) before a
+ * request ever reaches a controller method, so there is nothing to handle here.
  *
  * <p>{@code @Order(HIGHEST_PRECEDENCE)} so these specific handlers are consulted
  * before {@code common.web.GlobalExceptionHandler}'s {@code Exception} catch-all.
@@ -37,8 +41,9 @@ public class CatalogueExceptionHandler {
         return build(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
-    @ExceptionHandler(CategoryNameAlreadyExistsException.class)
-    public ResponseEntity<ErrorResponse> handleCategoryNameAlreadyExists(CategoryNameAlreadyExistsException ex) {
+    @ExceptionHandler({CategoryNameAlreadyExistsException.class, CategorySlugAlreadyExistsException.class,
+            SunnahSlugAlreadyExistsException.class})
+    public ResponseEntity<ErrorResponse> handleAlreadyExists(RuntimeException ex) {
         return build(HttpStatus.CONFLICT, ex.getMessage());
     }
 

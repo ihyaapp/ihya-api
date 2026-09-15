@@ -6,10 +6,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -50,41 +47,49 @@ class SunnahServiceTest {
 
     @Test
     void create_validInput_trimsTextAndPersistsSunnahUnderCategory() {
-        UUID categoryId = UUID.randomUUID();
-        Category category = new Category("Prayer", null);
-        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
-        when(sunnahRepository.save(any(Sunnah.class))).thenAnswer(inv -> inv.getArgument(0));
+        Category category = new Category("health-cleanliness", "Health & Cleanliness", null, "active", 0);
+        when(categoryRepository.findBySlug("health-cleanliness")).thenReturn(Optional.of(category));
+        when(sunnahRepository.saveAndFlush(any(Sunnah.class))).thenAnswer(inv -> inv.getArgument(0));
         ArgumentCaptor<Sunnah> captor = ArgumentCaptor.forClass(Sunnah.class);
 
-        sunnahService.create(categoryId, "  Use the miswak  ", "  Cleans the mouth  ",
-                "  Brush before wudu  ", "  Bukhari 887  ");
+        sunnahService.create(new SunnahCreateRequest(
+                "  use-the-miswak  ", "  Use the miswak  ", "health-cleanliness", "  Bukhari 887  ",
+                "  Cleans the mouth  ", "  Brush before wudu  ", "  arabic  ", "  prompt?  ",
+                List.of("hygiene")));
 
-        verify(sunnahRepository).save(captor.capture());
+        verify(sunnahRepository).saveAndFlush(captor.capture());
         Sunnah saved = captor.getValue();
+        assertThat(saved.getSlug()).isEqualTo("use-the-miswak");
         assertThat(saved.getTitle()).isEqualTo("Use the miswak");
         assertThat(saved.getDescription()).isEqualTo("Cleans the mouth");
-        assertThat(saved.getAction()).isEqualTo("Brush before wudu");
-        assertThat(saved.getReference()).isEqualTo("Bukhari 887");
+        assertThat(saved.getReflection()).isEqualTo("Brush before wudu");
+        assertThat(saved.getSource()).isEqualTo("Bukhari 887");
+        assertThat(saved.getArabicText()).isEqualTo("arabic");
+        assertThat(saved.getPrompt()).isEqualTo("prompt?");
+        assertThat(saved.getTags()).containsExactly("hygiene");
         assertThat(saved.getCategory()).isSameAs(category);
     }
 
     @Test
-    void create_blankReference_isStoredAsNull() {
-        UUID categoryId = UUID.randomUUID();
-        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(new Category("Prayer", null)));
-        when(sunnahRepository.save(any(Sunnah.class))).thenAnswer(inv -> inv.getArgument(0));
+    void create_blankArabicTextAndPrompt_areStoredAsNull() {
+        when(categoryRepository.findBySlug("health-cleanliness"))
+                .thenReturn(Optional.of(new Category("health-cleanliness", "Health & Cleanliness", null, "active", 0)));
+        when(sunnahRepository.saveAndFlush(any(Sunnah.class))).thenAnswer(inv -> inv.getArgument(0));
         ArgumentCaptor<Sunnah> captor = ArgumentCaptor.forClass(Sunnah.class);
 
-        sunnahService.create(categoryId, "Title", "Description", "Action", "   ");
+        sunnahService.create(new SunnahCreateRequest("slug", "Title", "health-cleanliness", "Source",
+                "Description", "Reflection", "   ", "   ", null));
 
-        verify(sunnahRepository).save(captor.capture());
-        assertThat(captor.getValue().getReference()).isNull();
+        verify(sunnahRepository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getArabicText()).isNull();
+        assertThat(captor.getValue().getPrompt()).isNull();
+        assertThat(captor.getValue().getTags()).isEmpty();
     }
 
     @Test
     void create_blankTitle_throwsIllegalArgumentExceptionAndDoesNotPersist() {
-        Throwable thrown = catchThrowable(() ->
-                sunnahService.create(UUID.randomUUID(), "  ", "Description", "Action", null));
+        Throwable thrown = catchThrowable(() -> sunnahService.create(new SunnahCreateRequest(
+                "slug", "  ", "health-cleanliness", "Source", "Description", "Reflection", null, null, null)));
 
         assertThat(thrown)
                 .isInstanceOf(IllegalArgumentException.class)
@@ -94,8 +99,8 @@ class SunnahServiceTest {
 
     @Test
     void create_blankDescription_throwsIllegalArgumentExceptionAndDoesNotPersist() {
-        Throwable thrown = catchThrowable(() ->
-                sunnahService.create(UUID.randomUUID(), "Title", "   ", "Action", null));
+        Throwable thrown = catchThrowable(() -> sunnahService.create(new SunnahCreateRequest(
+                "slug", "Title", "health-cleanliness", "Source", "   ", "Reflection", null, null, null)));
 
         assertThat(thrown)
                 .isInstanceOf(IllegalArgumentException.class)
@@ -104,38 +109,65 @@ class SunnahServiceTest {
     }
 
     @Test
-    void create_blankAction_throwsIllegalArgumentExceptionAndDoesNotPersist() {
-        Throwable thrown = catchThrowable(() ->
-                sunnahService.create(UUID.randomUUID(), "Title", "Description", "", null));
+    void create_blankReflection_throwsIllegalArgumentExceptionAndDoesNotPersist() {
+        Throwable thrown = catchThrowable(() -> sunnahService.create(new SunnahCreateRequest(
+                "slug", "Title", "health-cleanliness", "Source", "Description", "", null, null, null)));
 
         assertThat(thrown)
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("action must not be blank");
+                .hasMessageContaining("reflection must not be blank");
         verifyNoInteractions(categoryRepository, sunnahRepository);
     }
 
     @Test
-    void create_nonexistentCategoryId_throwsCategoryNotFoundExceptionAndDoesNotPersist() {
-        UUID categoryId = UUID.randomUUID();
-        when(categoryRepository.findById(categoryId)).thenReturn(Optional.empty());
+    void create_blankSource_throwsIllegalArgumentExceptionAndDoesNotPersist() {
+        Throwable thrown = catchThrowable(() -> sunnahService.create(new SunnahCreateRequest(
+                "slug", "Title", "health-cleanliness", "  ", "Description", "Reflection", null, null, null)));
 
-        Throwable thrown = catchThrowable(() ->
-                sunnahService.create(categoryId, "Title", "Description", "Action", null));
+        assertThat(thrown)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("source must not be blank");
+        verifyNoInteractions(categoryRepository, sunnahRepository);
+    }
+
+    @Test
+    void create_nonexistentCategorySlug_throwsCategoryNotFoundExceptionAndDoesNotPersist() {
+        when(categoryRepository.findBySlug("ghost")).thenReturn(Optional.empty());
+
+        Throwable thrown = catchThrowable(() -> sunnahService.create(new SunnahCreateRequest(
+                "slug", "Title", "ghost", "Source", "Description", "Reflection", null, null, null)));
 
         assertThat(thrown)
                 .isInstanceOf(CategoryNotFoundException.class)
-                .hasMessageContaining(categoryId.toString());
-        verify(sunnahRepository, never()).save(any());
+                .hasMessageContaining("ghost");
+        verify(sunnahRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void create_duplicateSlug_throwsSunnahSlugAlreadyExistsException() {
+        when(categoryRepository.findBySlug("health-cleanliness"))
+                .thenReturn(Optional.of(new Category("health-cleanliness", "Health & Cleanliness", null, "active", 0)));
+        when(sunnahRepository.saveAndFlush(any(Sunnah.class))).thenThrow(new DataIntegrityViolationException(
+                "could not execute statement [ERROR: duplicate key value violates unique "
+                        + "constraint \"sunnahs_slug_key\"]"));
+
+        Throwable thrown = catchThrowable(() -> sunnahService.create(new SunnahCreateRequest(
+                "use-the-miswak", "Title", "health-cleanliness", "Source", "Description", "Reflection",
+                null, null, null)));
+
+        assertThat(thrown)
+                .isInstanceOf(SunnahSlugAlreadyExistsException.class)
+                .hasMessageContaining("use-the-miswak");
     }
 
     // ------------------------------------------------------------------
-    // getById()
+    // getById() / getBySlug()
     // ------------------------------------------------------------------
 
     @Test
     void getById_existingId_returnsSunnah() {
         UUID id = UUID.randomUUID();
-        Sunnah sunnah = sunnahWithId(id);
+        Sunnah sunnah = sunnahWithId(id, "use-the-miswak");
         when(sunnahRepository.findById(id)).thenReturn(Optional.of(sunnah));
 
         Sunnah result = sunnahService.getById(id);
@@ -155,42 +187,49 @@ class SunnahServiceTest {
                 .hasMessageContaining(id.toString());
     }
 
-    // ------------------------------------------------------------------
-    // search()
-    // ------------------------------------------------------------------
-
     @Test
-    void search_trimsQueryBeforeDelegatingToRepository() {
-        UUID categoryId = UUID.randomUUID();
-        Pageable pageable = PageRequest.of(0, 20);
-        Page<Sunnah> page = new PageImpl<>(List.of(sunnahWithId(UUID.randomUUID())));
-        when(sunnahRepository.search("fasting", categoryId, pageable)).thenReturn(page);
+    void getBySlug_existingSlug_returnsSunnah() {
+        Sunnah sunnah = sunnahWithId(UUID.randomUUID(), "use-the-miswak");
+        when(sunnahRepository.findBySlug("use-the-miswak")).thenReturn(Optional.of(sunnah));
 
-        Page<Sunnah> result = sunnahService.search("  fasting  ", categoryId, pageable);
+        Sunnah result = sunnahService.getBySlug("use-the-miswak");
 
-        verify(sunnahRepository).search("fasting", categoryId, pageable);
-        assertThat(result).isSameAs(page);
+        assertThat(result).isSameAs(sunnah);
     }
 
     @Test
-    void search_blankQuery_delegatesWithNullQuery() {
-        Pageable pageable = PageRequest.of(0, 20);
-        when(sunnahRepository.search(null, null, pageable)).thenReturn(Page.empty());
+    void getBySlug_unknownSlug_throwsSunnahNotFoundException() {
+        when(sunnahRepository.findBySlug("ghost")).thenReturn(Optional.empty());
 
-        sunnahService.search("   ", null, pageable);
+        Throwable thrown = catchThrowable(() -> sunnahService.getBySlug("ghost"));
 
-        verify(sunnahRepository).search(null, null, pageable);
+        assertThat(thrown)
+                .isInstanceOf(SunnahNotFoundException.class)
+                .hasMessageContaining("ghost");
+    }
+
+    // ------------------------------------------------------------------
+    // getAll() / countByCategory()
+    // ------------------------------------------------------------------
+
+    @Test
+    void getAll_returnsCuratedOrderFromRepository() {
+        List<Sunnah> sunnahs = List.of(sunnahWithId(UUID.randomUUID(), "a"), sunnahWithId(UUID.randomUUID(), "b"));
+        when(sunnahRepository.findAllOrderedByCategoryThenCreatedAt()).thenReturn(sunnahs);
+
+        List<Sunnah> result = sunnahService.getAll();
+
+        assertThat(result).isEqualTo(sunnahs);
     }
 
     @Test
-    void search_nullQuery_delegatesWithNullQueryAndKeepsCategoryFilter() {
+    void countByCategory_delegatesToRepository() {
         UUID categoryId = UUID.randomUUID();
-        Pageable pageable = PageRequest.of(0, 20);
-        when(sunnahRepository.search(null, categoryId, pageable)).thenReturn(Page.empty());
+        when(sunnahRepository.countByCategoryId(categoryId)).thenReturn(3L);
 
-        sunnahService.search(null, categoryId, pageable);
+        long result = sunnahService.countByCategory(categoryId);
 
-        verify(sunnahRepository).search(null, categoryId, pageable);
+        assertThat(result).isEqualTo(3L);
     }
 
     // ------------------------------------------------------------------
@@ -199,73 +238,89 @@ class SunnahServiceTest {
 
     @Test
     void update_validInput_appliesTrimmedChangesReassignsCategoryAndPersists() {
-        UUID id = UUID.randomUUID();
-        UUID newCategoryId = UUID.randomUUID();
-        Sunnah existing = sunnahWithId(id);
-        Category newCategory = new Category("Fasting", null);
-        when(sunnahRepository.findById(id)).thenReturn(Optional.of(existing));
-        when(categoryRepository.findById(newCategoryId)).thenReturn(Optional.of(newCategory));
-        when(sunnahRepository.save(any(Sunnah.class))).thenAnswer(inv -> inv.getArgument(0));
+        Sunnah existing = sunnahWithId(UUID.randomUUID(), "use-the-miswak");
+        Category newCategory = new Category("fasting", "Fasting", null, "active", 0);
+        when(sunnahRepository.findBySlug("use-the-miswak")).thenReturn(Optional.of(existing));
+        when(categoryRepository.findBySlug("fasting")).thenReturn(Optional.of(newCategory));
+        when(sunnahRepository.saveAndFlush(any(Sunnah.class))).thenAnswer(inv -> inv.getArgument(0));
         ArgumentCaptor<Sunnah> captor = ArgumentCaptor.forClass(Sunnah.class);
 
-        Sunnah result = sunnahService.update(id, "  New Title  ", "  New Desc  ",
-                "  New Action  ", "  Muslim 1  ", newCategoryId);
+        Sunnah result = sunnahService.update("use-the-miswak", new SunnahUpdateRequest(
+                "  New Title  ", "fasting", "  Muslim 1  ", "  New Desc  ", "  New Reflection  ",
+                null, null, List.of("ramadan")));
 
-        verify(sunnahRepository).save(captor.capture());
+        verify(sunnahRepository).saveAndFlush(captor.capture());
         Sunnah saved = captor.getValue();
         assertThat(saved.getTitle()).isEqualTo("New Title");
         assertThat(saved.getDescription()).isEqualTo("New Desc");
-        assertThat(saved.getAction()).isEqualTo("New Action");
-        assertThat(saved.getReference()).isEqualTo("Muslim 1");
+        assertThat(saved.getReflection()).isEqualTo("New Reflection");
+        assertThat(saved.getSource()).isEqualTo("Muslim 1");
+        assertThat(saved.getTags()).containsExactly("ramadan");
         assertThat(saved.getCategory()).isSameAs(newCategory);
         assertThat(result).isSameAs(existing);
     }
 
     @Test
-    void update_unknownSunnahId_throwsSunnahNotFoundExceptionAndDoesNotPersist() {
-        UUID id = UUID.randomUUID();
-        when(sunnahRepository.findById(id)).thenReturn(Optional.empty());
+    void update_partialRequest_keepsOmittedFieldsUnchanged() {
+        Sunnah existing = sunnahWithId(UUID.randomUUID(), "use-the-miswak");
+        when(sunnahRepository.findBySlug("use-the-miswak")).thenReturn(Optional.of(existing));
+        when(sunnahRepository.saveAndFlush(any(Sunnah.class))).thenAnswer(inv -> inv.getArgument(0));
+        ArgumentCaptor<Sunnah> captor = ArgumentCaptor.forClass(Sunnah.class);
 
-        Throwable thrown = catchThrowable(() ->
-                sunnahService.update(id, "Title", "Desc", "Action", null, UUID.randomUUID()));
+        sunnahService.update("use-the-miswak", new SunnahUpdateRequest(
+                null, null, null, "New Desc only", null, null, null, null));
 
-        assertThat(thrown)
-                .isInstanceOf(SunnahNotFoundException.class)
-                .hasMessageContaining(id.toString());
-        verify(sunnahRepository, never()).save(any());
+        verify(sunnahRepository).saveAndFlush(captor.capture());
+        Sunnah saved = captor.getValue();
+        assertThat(saved.getTitle()).isEqualTo(existing.getTitle());
+        assertThat(saved.getDescription()).isEqualTo("New Desc only");
+        assertThat(saved.getReflection()).isEqualTo(existing.getReflection());
+        assertThat(saved.getSource()).isEqualTo(existing.getSource());
+        assertThat(saved.getCategory()).isSameAs(existing.getCategory());
         verifyNoInteractions(categoryRepository);
     }
 
     @Test
-    void update_nonexistentCategoryId_throwsCategoryNotFoundExceptionAndDoesNotPersist() {
-        UUID id = UUID.randomUUID();
-        UUID categoryId = UUID.randomUUID();
-        when(sunnahRepository.findById(id)).thenReturn(Optional.of(sunnahWithId(id)));
-        when(categoryRepository.findById(categoryId)).thenReturn(Optional.empty());
+    void update_unknownSunnahSlug_throwsSunnahNotFoundExceptionAndDoesNotPersist() {
+        when(sunnahRepository.findBySlug("ghost")).thenReturn(Optional.empty());
 
-        Throwable thrown = catchThrowable(() ->
-                sunnahService.update(id, "Title", "Desc", "Action", null, categoryId));
+        Throwable thrown = catchThrowable(() -> sunnahService.update("ghost", new SunnahUpdateRequest(
+                "Title", null, "Source", "Desc", "Reflection", null, null, null)));
+
+        assertThat(thrown)
+                .isInstanceOf(SunnahNotFoundException.class)
+                .hasMessageContaining("ghost");
+        verify(sunnahRepository, never()).saveAndFlush(any());
+        verifyNoInteractions(categoryRepository);
+    }
+
+    @Test
+    void update_nonexistentCategorySlug_throwsCategoryNotFoundExceptionAndDoesNotPersist() {
+        Sunnah existing = sunnahWithId(UUID.randomUUID(), "use-the-miswak");
+        when(sunnahRepository.findBySlug("use-the-miswak")).thenReturn(Optional.of(existing));
+        when(categoryRepository.findBySlug("ghost")).thenReturn(Optional.empty());
+
+        Throwable thrown = catchThrowable(() -> sunnahService.update("use-the-miswak", new SunnahUpdateRequest(
+                "Title", "ghost", "Source", "Desc", "Reflection", null, null, null)));
 
         assertThat(thrown)
                 .isInstanceOf(CategoryNotFoundException.class)
-                .hasMessageContaining(categoryId.toString());
-        verify(sunnahRepository, never()).save(any());
+                .hasMessageContaining("ghost");
+        verify(sunnahRepository, never()).saveAndFlush(any());
     }
 
     @Test
     void update_blankTitle_throwsIllegalArgumentExceptionAndDoesNotPersist() {
-        UUID id = UUID.randomUUID();
-        UUID categoryId = UUID.randomUUID();
-        when(sunnahRepository.findById(id)).thenReturn(Optional.of(sunnahWithId(id)));
-        when(categoryRepository.findById(categoryId)).thenReturn(Optional.of(new Category("Fasting", null)));
+        Sunnah existing = sunnahWithId(UUID.randomUUID(), "use-the-miswak");
+        when(sunnahRepository.findBySlug("use-the-miswak")).thenReturn(Optional.of(existing));
 
-        Throwable thrown = catchThrowable(() ->
-                sunnahService.update(id, "  ", "Desc", "Action", null, categoryId));
+        Throwable thrown = catchThrowable(() -> sunnahService.update("use-the-miswak", new SunnahUpdateRequest(
+                "  ", null, null, null, null, null, null, null)));
 
         assertThat(thrown)
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("title must not be blank");
-        verify(sunnahRepository, never()).save(any());
+        verify(sunnahRepository, never()).saveAndFlush(any());
     }
 
     // ------------------------------------------------------------------
@@ -273,22 +328,20 @@ class SunnahServiceTest {
     // ------------------------------------------------------------------
 
     @Test
-    void delete_existingId_deletesEntity() {
-        UUID id = UUID.randomUUID();
-        Sunnah sunnah = sunnahWithId(id);
-        when(sunnahRepository.findById(id)).thenReturn(Optional.of(sunnah));
+    void delete_existingSlug_deletesEntity() {
+        Sunnah sunnah = sunnahWithId(UUID.randomUUID(), "use-the-miswak");
+        when(sunnahRepository.findBySlug("use-the-miswak")).thenReturn(Optional.of(sunnah));
 
-        sunnahService.delete(id);
+        sunnahService.delete("use-the-miswak");
 
         verify(sunnahRepository).delete(sunnah);
     }
 
     @Test
-    void delete_unknownId_throwsSunnahNotFoundExceptionAndDoesNotDelete() {
-        UUID id = UUID.randomUUID();
-        when(sunnahRepository.findById(id)).thenReturn(Optional.empty());
+    void delete_unknownSlug_throwsSunnahNotFoundExceptionAndDoesNotDelete() {
+        when(sunnahRepository.findBySlug("ghost")).thenReturn(Optional.empty());
 
-        Throwable thrown = catchThrowable(() -> sunnahService.delete(id));
+        Throwable thrown = catchThrowable(() -> sunnahService.delete("ghost"));
 
         assertThat(thrown).isInstanceOf(SunnahNotFoundException.class);
         verify(sunnahRepository, never()).delete(any());
@@ -299,8 +352,9 @@ class SunnahServiceTest {
     // ------------------------------------------------------------------
 
     /** Builds a {@link Sunnah} with its generated {@code id} set reflectively. */
-    private static Sunnah sunnahWithId(UUID id) {
-        Sunnah sunnah = new Sunnah(new Category("Prayer", null), "Title", "Description", "Action", null);
+    private static Sunnah sunnahWithId(UUID id, String slug) {
+        Sunnah sunnah = new Sunnah(new Category("health-cleanliness", "Health & Cleanliness", null, "active", 0),
+                slug, "Title", "Description", "Reflection", "Source", null, null, List.of());
         try {
             Field idField = Sunnah.class.getDeclaredField("id");
             idField.setAccessible(true);

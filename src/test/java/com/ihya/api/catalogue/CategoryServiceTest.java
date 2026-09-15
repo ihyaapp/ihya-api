@@ -44,34 +44,75 @@ class CategoryServiceTest {
     // ------------------------------------------------------------------
 
     @Test
-    void create_validInput_trimsNameAndPersistsCategory() {
-        Category persisted = categoryWithId(UUID.randomUUID(), "Prayer", "Salah practices");
+    void create_validInput_trimsFieldsAndPersistsCategory() {
+        Category persisted = categoryWithId(UUID.randomUUID(), "faith-worship", "Faith & Worship", "Salah practices",
+                "active", 0);
         when(categoryRepository.saveAndFlush(any(Category.class))).thenReturn(persisted);
         ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
 
-        Category result = categoryService.create("  Prayer  ", "Salah practices");
+        Category result = categoryService.create(
+                new CategoryCreateRequest("  faith-worship  ", "  Faith & Worship  ", "Salah practices", "active"));
 
         verify(categoryRepository).saveAndFlush(captor.capture());
-        assertThat(captor.getValue().getName()).isEqualTo("Prayer");
+        assertThat(captor.getValue().getSlug()).isEqualTo("faith-worship");
+        assertThat(captor.getValue().getName()).isEqualTo("Faith & Worship");
         assertThat(captor.getValue().getDescription()).isEqualTo("Salah practices");
+        assertThat(captor.getValue().getStatus()).isEqualTo("active");
         assertThat(result).isSameAs(persisted);
     }
 
     @Test
-    void create_blankName_throwsIllegalArgumentExceptionAndDoesNotPersist() {
-        Throwable thrown = catchThrowable(() -> categoryService.create("   ", "some description"));
+    void create_statusOmitted_defaultsToActive() {
+        when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+        ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
+
+        categoryService.create(new CategoryCreateRequest("faith-worship", "Faith & Worship", null, null));
+
+        verify(categoryRepository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo("active");
+    }
+
+    @Test
+    void create_comingSoonStatus_isAccepted() {
+        when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+        ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
+
+        categoryService.create(new CategoryCreateRequest("self-care", "Self Care", null, "coming-soon"));
+
+        verify(categoryRepository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo("coming-soon");
+    }
+
+    @Test
+    void create_invalidStatus_throwsIllegalArgumentExceptionAndDoesNotPersist() {
+        Throwable thrown = catchThrowable(() ->
+                categoryService.create(new CategoryCreateRequest("faith-worship", "Faith & Worship", null, "retired")));
 
         assertThat(thrown)
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("name must not be blank");
+                .hasMessageContaining("status must be one of");
         verifyNoInteractions(categoryRepository);
     }
 
     @Test
-    void create_nullName_throwsIllegalArgumentException() {
-        Throwable thrown = catchThrowable(() -> categoryService.create(null, "some description"));
+    void create_blankSlug_throwsIllegalArgumentExceptionAndDoesNotPersist() {
+        Throwable thrown = catchThrowable(() ->
+                categoryService.create(new CategoryCreateRequest("   ", "Faith & Worship", null, "active")));
 
-        assertThat(thrown).isInstanceOf(IllegalArgumentException.class);
+        assertThat(thrown)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("slug must not be blank");
+        verifyNoInteractions(categoryRepository);
+    }
+
+    @Test
+    void create_blankName_throwsIllegalArgumentExceptionAndDoesNotPersist() {
+        Throwable thrown = catchThrowable(() ->
+                categoryService.create(new CategoryCreateRequest("faith-worship", "   ", null, "active")));
+
+        assertThat(thrown)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("name must not be blank");
         verifyNoInteractions(categoryRepository);
     }
 
@@ -81,11 +122,26 @@ class CategoryServiceTest {
                 "could not execute statement [ERROR: duplicate key value violates unique "
                         + "constraint \"categories_name_key\"]"));
 
-        Throwable thrown = catchThrowable(() -> categoryService.create("Prayer", "dupe"));
+        Throwable thrown = catchThrowable(() ->
+                categoryService.create(new CategoryCreateRequest("faith-worship", "Faith & Worship", null, "active")));
 
         assertThat(thrown)
                 .isInstanceOf(CategoryNameAlreadyExistsException.class)
-                .hasMessageContaining("Prayer");
+                .hasMessageContaining("Faith & Worship");
+    }
+
+    @Test
+    void create_duplicateSlug_throwsCategorySlugAlreadyExistsException() {
+        when(categoryRepository.saveAndFlush(any(Category.class))).thenThrow(new DataIntegrityViolationException(
+                "could not execute statement [ERROR: duplicate key value violates unique "
+                        + "constraint \"categories_slug_key\"]"));
+
+        Throwable thrown = catchThrowable(() ->
+                categoryService.create(new CategoryCreateRequest("faith-worship", "Faith & Worship", null, "active")));
+
+        assertThat(thrown)
+                .isInstanceOf(CategorySlugAlreadyExistsException.class)
+                .hasMessageContaining("faith-worship");
     }
 
     @Test
@@ -94,36 +150,35 @@ class CategoryServiceTest {
                 "could not execute statement [ERROR: null value in column \"created_at\" violates not-null constraint]");
         when(categoryRepository.saveAndFlush(any(Category.class))).thenThrow(dbError);
 
-        Throwable thrown = catchThrowable(() -> categoryService.create("Prayer", "desc"));
+        Throwable thrown = catchThrowable(() ->
+                categoryService.create(new CategoryCreateRequest("faith-worship", "Faith & Worship", null, "active")));
 
         assertThat(thrown).isSameAs(dbError);
     }
 
     // ------------------------------------------------------------------
-    // getById()
+    // getBySlug()
     // ------------------------------------------------------------------
 
     @Test
-    void getById_existingId_returnsCategory() {
-        UUID id = UUID.randomUUID();
-        Category category = categoryWithId(id, "Fasting", null);
-        when(categoryRepository.findById(id)).thenReturn(Optional.of(category));
+    void getBySlug_existingSlug_returnsCategory() {
+        Category category = categoryWithId(UUID.randomUUID(), "fasting", "Fasting", null, "active", 0);
+        when(categoryRepository.findBySlug("fasting")).thenReturn(Optional.of(category));
 
-        Category result = categoryService.getById(id);
+        Category result = categoryService.getBySlug("fasting");
 
         assertThat(result).isSameAs(category);
     }
 
     @Test
-    void getById_unknownId_throwsCategoryNotFoundException() {
-        UUID id = UUID.randomUUID();
-        when(categoryRepository.findById(id)).thenReturn(Optional.empty());
+    void getBySlug_unknownSlug_throwsCategoryNotFoundException() {
+        when(categoryRepository.findBySlug("ghost")).thenReturn(Optional.empty());
 
-        Throwable thrown = catchThrowable(() -> categoryService.getById(id));
+        Throwable thrown = catchThrowable(() -> categoryService.getBySlug("ghost"));
 
         assertThat(thrown)
                 .isInstanceOf(CategoryNotFoundException.class)
-                .hasMessageContaining(id.toString());
+                .hasMessageContaining("ghost");
     }
 
     // ------------------------------------------------------------------
@@ -132,39 +187,59 @@ class CategoryServiceTest {
 
     @Test
     void update_validInput_appliesTrimmedChangesAndPersists() {
-        UUID id = UUID.randomUUID();
-        Category existing = categoryWithId(id, "Prayer", "old description");
-        when(categoryRepository.findById(id)).thenReturn(Optional.of(existing));
+        Category existing = categoryWithId(UUID.randomUUID(), "faith-worship", "Prayer", "old description",
+                "active", 0);
+        when(categoryRepository.findBySlug("faith-worship")).thenReturn(Optional.of(existing));
         when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
         ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
 
-        Category result = categoryService.update(id, "  Salah  ", "new description");
+        Category result = categoryService.update("faith-worship",
+                new CategoryUpdateRequest("Faith & Worship", "new description", "coming-soon"));
 
         verify(categoryRepository).saveAndFlush(captor.capture());
-        assertThat(captor.getValue().getName()).isEqualTo("Salah");
+        assertThat(captor.getValue().getName()).isEqualTo("Faith & Worship");
         assertThat(captor.getValue().getDescription()).isEqualTo("new description");
+        assertThat(captor.getValue().getStatus()).isEqualTo("coming-soon");
         assertThat(result).isSameAs(existing);
     }
 
     @Test
-    void update_unknownId_throwsCategoryNotFoundExceptionAndDoesNotPersist() {
-        UUID id = UUID.randomUUID();
-        when(categoryRepository.findById(id)).thenReturn(Optional.empty());
+    void update_partialRequest_keepsOmittedFieldsUnchanged() {
+        Category existing = categoryWithId(UUID.randomUUID(), "faith-worship", "Prayer", "old description",
+                "active", 0);
+        when(categoryRepository.findBySlug("faith-worship")).thenReturn(Optional.of(existing));
+        when(categoryRepository.saveAndFlush(any(Category.class))).thenAnswer(inv -> inv.getArgument(0));
+        ArgumentCaptor<Category> captor = ArgumentCaptor.forClass(Category.class);
 
-        Throwable thrown = catchThrowable(() -> categoryService.update(id, "Salah", "desc"));
+        categoryService.update("faith-worship", new CategoryUpdateRequest(null, "new description", null));
+
+        verify(categoryRepository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getName()).isEqualTo("Prayer");
+        assertThat(captor.getValue().getDescription()).isEqualTo("new description");
+        assertThat(captor.getValue().getStatus()).isEqualTo("active");
+    }
+
+    @Test
+    void update_unknownSlug_throwsCategoryNotFoundExceptionAndDoesNotPersist() {
+        when(categoryRepository.findBySlug("ghost")).thenReturn(Optional.empty());
+
+        Throwable thrown = catchThrowable(() ->
+                categoryService.update("ghost", new CategoryUpdateRequest("Salah", "desc", "active")));
 
         assertThat(thrown)
                 .isInstanceOf(CategoryNotFoundException.class)
-                .hasMessageContaining(id.toString());
+                .hasMessageContaining("ghost");
         verify(categoryRepository, never()).saveAndFlush(any());
     }
 
     @Test
     void update_blankName_throwsIllegalArgumentExceptionAndDoesNotPersist() {
-        UUID id = UUID.randomUUID();
-        when(categoryRepository.findById(id)).thenReturn(Optional.of(categoryWithId(id, "Prayer", null)));
+        when(categoryRepository.findBySlug("faith-worship"))
+                .thenReturn(Optional.of(categoryWithId(UUID.randomUUID(), "faith-worship", "Prayer", null,
+                        "active", 0)));
 
-        Throwable thrown = catchThrowable(() -> categoryService.update(id, "   ", "desc"));
+        Throwable thrown = catchThrowable(() ->
+                categoryService.update("faith-worship", new CategoryUpdateRequest("   ", "desc", "active")));
 
         assertThat(thrown)
                 .isInstanceOf(IllegalArgumentException.class)
@@ -173,14 +248,31 @@ class CategoryServiceTest {
     }
 
     @Test
+    void update_invalidStatus_throwsIllegalArgumentExceptionAndDoesNotPersist() {
+        when(categoryRepository.findBySlug("faith-worship"))
+                .thenReturn(Optional.of(categoryWithId(UUID.randomUUID(), "faith-worship", "Prayer", null,
+                        "active", 0)));
+
+        Throwable thrown = catchThrowable(() ->
+                categoryService.update("faith-worship", new CategoryUpdateRequest(null, null, "retired")));
+
+        assertThat(thrown)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("status must be one of");
+        verify(categoryRepository, never()).saveAndFlush(any());
+    }
+
+    @Test
     void update_renameToExistingName_throwsCategoryNameAlreadyExistsException() {
-        UUID id = UUID.randomUUID();
-        when(categoryRepository.findById(id)).thenReturn(Optional.of(categoryWithId(id, "Prayer", null)));
+        when(categoryRepository.findBySlug("faith-worship"))
+                .thenReturn(Optional.of(categoryWithId(UUID.randomUUID(), "faith-worship", "Prayer", null,
+                        "active", 0)));
         when(categoryRepository.saveAndFlush(any(Category.class))).thenThrow(new DataIntegrityViolationException(
                 "could not execute statement [ERROR: duplicate key value violates unique "
                         + "constraint \"categories_name_key\"]"));
 
-        Throwable thrown = catchThrowable(() -> categoryService.update(id, "Fasting", "desc"));
+        Throwable thrown = catchThrowable(() ->
+                categoryService.update("faith-worship", new CategoryUpdateRequest("Fasting", "desc", "active")));
 
         assertThat(thrown)
                 .isInstanceOf(CategoryNameAlreadyExistsException.class)
@@ -189,13 +281,15 @@ class CategoryServiceTest {
 
     @Test
     void update_unrelatedIntegrityViolation_propagatesUnchanged() {
-        UUID id = UUID.randomUUID();
         DataIntegrityViolationException dbError = new DataIntegrityViolationException(
                 "could not execute statement [ERROR: some other constraint]");
-        when(categoryRepository.findById(id)).thenReturn(Optional.of(categoryWithId(id, "Prayer", null)));
+        when(categoryRepository.findBySlug("faith-worship"))
+                .thenReturn(Optional.of(categoryWithId(UUID.randomUUID(), "faith-worship", "Prayer", null,
+                        "active", 0)));
         when(categoryRepository.saveAndFlush(any(Category.class))).thenThrow(dbError);
 
-        Throwable thrown = catchThrowable(() -> categoryService.update(id, "Salah", "desc"));
+        Throwable thrown = catchThrowable(() ->
+                categoryService.update("faith-worship", new CategoryUpdateRequest("Salah", "desc", "active")));
 
         assertThat(thrown).isSameAs(dbError);
     }
@@ -207,8 +301,8 @@ class CategoryServiceTest {
     @Test
     void getAll_returnsRepositoryContents() {
         List<Category> categories = List.of(
-                categoryWithId(UUID.randomUUID(), "Prayer", null),
-                categoryWithId(UUID.randomUUID(), "Fasting", null));
+                categoryWithId(UUID.randomUUID(), "faith-worship", "Prayer", null, "active", 0),
+                categoryWithId(UUID.randomUUID(), "fasting", "Fasting", null, "active", 1));
         when(categoryRepository.findAll()).thenReturn(categories);
 
         List<Category> result = categoryService.getAll();
@@ -221,22 +315,20 @@ class CategoryServiceTest {
     // ------------------------------------------------------------------
 
     @Test
-    void delete_existingId_deletesEntity() {
-        UUID id = UUID.randomUUID();
-        Category category = categoryWithId(id, "Prayer", null);
-        when(categoryRepository.findById(id)).thenReturn(Optional.of(category));
+    void delete_existingSlug_deletesEntity() {
+        Category category = categoryWithId(UUID.randomUUID(), "faith-worship", "Prayer", null, "active", 0);
+        when(categoryRepository.findBySlug("faith-worship")).thenReturn(Optional.of(category));
 
-        categoryService.delete(id);
+        categoryService.delete("faith-worship");
 
         verify(categoryRepository).delete(category);
     }
 
     @Test
-    void delete_unknownId_throwsCategoryNotFoundExceptionAndDoesNotDelete() {
-        UUID id = UUID.randomUUID();
-        when(categoryRepository.findById(id)).thenReturn(Optional.empty());
+    void delete_unknownSlug_throwsCategoryNotFoundExceptionAndDoesNotDelete() {
+        when(categoryRepository.findBySlug("ghost")).thenReturn(Optional.empty());
 
-        Throwable thrown = catchThrowable(() -> categoryService.delete(id));
+        Throwable thrown = catchThrowable(() -> categoryService.delete("ghost"));
 
         assertThat(thrown).isInstanceOf(CategoryNotFoundException.class);
         verify(categoryRepository, never()).delete(any());
@@ -252,8 +344,9 @@ class CategoryServiceTest {
      * tests simulate a saved row by setting the field reflectively — same
      * approach as {@code UserServiceTest}.
      */
-    private static Category categoryWithId(UUID id, String name, String description) {
-        Category category = new Category(name, description);
+    private static Category categoryWithId(UUID id, String slug, String name, String description, String status,
+                                            int sortOrder) {
+        Category category = new Category(slug, name, description, status, sortOrder);
         try {
             Field idField = Category.class.getDeclaredField("id");
             idField.setAccessible(true);
