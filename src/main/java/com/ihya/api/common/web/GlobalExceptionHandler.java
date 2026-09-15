@@ -7,6 +7,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.authorization.AuthorizationDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -32,6 +33,14 @@ import java.util.stream.Collectors;
  *       body) &rarr; 400</li>
  *   <li>{@link HttpMediaTypeNotSupportedException} (wrong {@code Content-Type})
  *       &rarr; 400</li>
+ *   <li>{@link AuthorizationDeniedException} (a failed {@code @PreAuthorize},
+ *       e.g. a non-{@code ADMIN} hitting a catalogue write) &rarr; 403. Method
+ *       security's {@code AuthorizationManagerBeforeMethodInterceptor} throws
+ *       this from inside the controller method invocation, so Spring MVC's own
+ *       exception resolution (this advice) catches it before it can ever reach
+ *       {@code ExceptionTranslationFilter} / {@code RestAccessDeniedHandler} in
+ *       the security filter chain — that handler only fires for a denial at the
+ *       filter/URL-rule layer, which this app does not currently have.</li>
  *   <li>anything else &rarr; 500 with a fixed generic message; the real
  *       exception (with stack trace) is logged server-side and never sent to the
  *       client.</li>
@@ -110,6 +119,18 @@ public class GlobalExceptionHandler {
                 : ex.getSupportedMediaTypes().stream().map(Object::toString).collect(Collectors.joining(", "));
         return build(HttpStatus.BAD_REQUEST,
                 "Content-Type '" + offending + "' is not supported; expected " + supported);
+    }
+
+    /**
+     * A {@code @PreAuthorize} check failed — the caller is authenticated but
+     * lacks the required role (e.g. a {@code USER} hitting a catalogue write
+     * gated {@code @PreAuthorize("hasRole('ADMIN')")}). Same body shape and
+     * message as {@link RestAccessDeniedHandler}, which exists for the same
+     * denial at the filter/URL-rule layer instead.
+     */
+    @ExceptionHandler(AuthorizationDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAuthorizationDenied(AuthorizationDeniedException ex) {
+        return build(HttpStatus.FORBIDDEN, "You do not have permission to perform this action");
     }
 
     /**
