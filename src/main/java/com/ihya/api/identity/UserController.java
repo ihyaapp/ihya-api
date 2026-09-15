@@ -1,9 +1,12 @@
 package com.ihya.api.identity;
 
+import com.ihya.api.profile.Profile;
+import com.ihya.api.profile.ProfileService;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -21,18 +24,28 @@ import java.util.UUID;
  * <p>An unauthenticated request never reaches this method: the security filter
  * chain stops it first and {@link com.ihya.api.common.web.RestAuthenticationEntryPoint}
  * renders the 401.
+ *
+ * <p>{@code /me} composes identity and profile data: identity owns id/email/
+ * timezone/createdAt, profile owns name/interests/personalizePromptDismissed —
+ * this controller stitches the two together via {@link UserService} and
+ * {@link ProfileService} rather than either module reaching into the other's tables.
  */
 @RestController
 public class UserController {
 
     private final UserService userService;
+    private final ProfileService profileService;
 
-    public UserController(UserService userService) {
+    public UserController(UserService userService, ProfileService profileService) {
         this.userService = userService;
+        this.profileService = profileService;
     }
 
     @GetMapping("/me")
     public MeResponse me(@AuthenticationPrincipal UUID userId) {
-        return MeResponse.from(userService.getById(userId));
+        User user = userService.getById(userId);
+        Profile profile = profileService.getProfile(userId);
+        List<String> interests = profileService.getInterestSlugs(userId);
+        return MeResponse.from(user, profile, interests);
     }
 }

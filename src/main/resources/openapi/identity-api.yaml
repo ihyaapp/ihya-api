@@ -226,7 +226,10 @@ components:
 
     MeResponse:
       type: object
-      description: Public view of the authenticated user — never includes the password hash.
+      description: >
+        Public view of the authenticated user — never includes the password
+        hash. Composes identity fields (id, email, timezone, createdAt) with
+        profile fields (name, interests, personalizePromptDismissed).
       properties:
         id:
           type: string
@@ -234,12 +237,27 @@ components:
         email:
           type: string
           format: email
+        name:
+          type: string
+          nullable: true
+        timezone:
+          type: string
+        interests:
+          type: array
+          items:
+            type: string
+        personalizePromptDismissed:
+          type: boolean
         createdAt:
           type: string
           format: date-time
       example:
         id: 3f8c1e02-9c4a-4b7e-9f1a-2d6b5c8e7a10
         email: user@example.com
+        name: null
+        timezone: UTC
+        interests: []
+        personalizePromptDismissed: false
         createdAt: 2026-09-01T08:30:00Z
 
     ErrorResponse:
