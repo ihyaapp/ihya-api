@@ -91,7 +91,7 @@ class AuthControllerIntegrationTest {
         String email = "flow-user@example.com";
         String password = "correct-horse-battery";
 
-        String registerBody = mockMvc.perform(post("/auth/register")
+        String registerBody = mockMvc.perform(post("/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(authJson(email, password)))
                 .andExpect(status().isCreated())
@@ -104,13 +104,13 @@ class AuthControllerIntegrationTest {
         String refreshToken1 = JsonPath.read(registerBody, "$.refreshToken");
         String userId = JsonPath.read(registerBody, "$.userId");
 
-        mockMvc.perform(get("/me").header("Authorization", "Bearer " + accessToken1))
+        mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + accessToken1))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(userId))
                 .andExpect(jsonPath("$.email").value(email))
                 .andExpect(jsonPath("$.createdAt").isNotEmpty());
 
-        String refreshBody = mockMvc.perform(post("/auth/refresh")
+        String refreshBody = mockMvc.perform(post("/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(refreshJson(refreshToken1)))
                 .andExpect(status().isOk())
@@ -122,7 +122,7 @@ class AuthControllerIntegrationTest {
         String refreshToken2 = JsonPath.read(refreshBody, "$.refreshToken");
 
         assertThat(refreshToken2).isNotEqualTo(refreshToken1);
-        mockMvc.perform(get("/me").header("Authorization", "Bearer " + accessToken2))
+        mockMvc.perform(get("/v1/me").header("Authorization", "Bearer " + accessToken2))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(userId))
                 .andExpect(jsonPath("$.email").value(email));
@@ -137,7 +137,7 @@ class AuthControllerIntegrationTest {
         String email = "dupe@example.com";
         register(email, "first-password");
 
-        mockMvc.perform(post("/auth/register")
+        mockMvc.perform(post("/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(authJson(email, "second-password")))
                 .andExpect(status().isConflict())
@@ -149,7 +149,7 @@ class AuthControllerIntegrationTest {
 
     @Test
     void register_malformedJsonBody_returns400() throws Exception {
-        mockMvc.perform(post("/auth/register")
+        mockMvc.perform(post("/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\": \"x@y.com\", "))
                 .andExpect(status().isBadRequest())
@@ -160,7 +160,7 @@ class AuthControllerIntegrationTest {
 
     @Test
     void register_invalidEmailAndShortPassword_returns400ListingBothFieldErrors() throws Exception {
-        mockMvc.perform(post("/auth/register")
+        mockMvc.perform(post("/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(authJson("not-an-email", "short")))
                 .andExpect(status().isBadRequest())
@@ -180,7 +180,7 @@ class AuthControllerIntegrationTest {
         String email = "wrong-pw@example.com";
         register(email, "the-right-password");
 
-        mockMvc.perform(post("/auth/login")
+        mockMvc.perform(post("/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(authJson(email, "the-wrong-password")))
                 .andExpect(status().isUnauthorized())
@@ -195,12 +195,12 @@ class AuthControllerIntegrationTest {
         String realEmail = "known@example.com";
         register(realEmail, "real-password");
 
-        String wrongPasswordBody = mockMvc.perform(post("/auth/login")
+        String wrongPasswordBody = mockMvc.perform(post("/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(authJson(realEmail, "bad-password")))
                 .andExpect(status().isUnauthorized())
                 .andReturn().getResponse().getContentAsString();
-        String unknownEmailBody = mockMvc.perform(post("/auth/login")
+        String unknownEmailBody = mockMvc.perform(post("/v1/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(authJson("nobody@example.com", "bad-password")))
                 .andExpect(status().isUnauthorized())
@@ -223,14 +223,14 @@ class AuthControllerIntegrationTest {
         String registerBody = register("reuse@example.com", "reuse-password");
         String refreshToken1 = JsonPath.read(registerBody, "$.refreshToken");
 
-        String rotatedBody = mockMvc.perform(post("/auth/refresh")
+        String rotatedBody = mockMvc.perform(post("/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(refreshJson(refreshToken1)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         String refreshToken2 = JsonPath.read(rotatedBody, "$.refreshToken");
 
-        mockMvc.perform(post("/auth/refresh")
+        mockMvc.perform(post("/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(refreshJson(refreshToken1)))
                 .andExpect(status().isUnauthorized())
@@ -240,7 +240,7 @@ class AuthControllerIntegrationTest {
 
         // The token that reuse-detection rotated in is now dead too: proof that
         // revokeAllForUser ran and every session was killed, not just token #1.
-        mockMvc.perform(post("/auth/refresh")
+        mockMvc.perform(post("/v1/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(refreshJson(refreshToken2)))
                 .andExpect(status().isUnauthorized())
@@ -258,7 +258,7 @@ class AuthControllerIntegrationTest {
 
     @Test
     void getMe_withoutAuthorizationHeader_returns401WithAuthenticationRequiredShape() throws Exception {
-        mockMvc.perform(get("/me"))
+        mockMvc.perform(get("/v1/me"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401))
                 .andExpect(jsonPath("$.error").value("Unauthorized"))
@@ -268,11 +268,11 @@ class AuthControllerIntegrationTest {
 
     @Test
     void getMe_withMalformedToken_returns401WithSameShapeAsNoHeader() throws Exception {
-        String noHeaderBody = mockMvc.perform(get("/me"))
+        String noHeaderBody = mockMvc.perform(get("/v1/me"))
                 .andExpect(status().isUnauthorized())
                 .andReturn().getResponse().getContentAsString();
 
-        String garbageTokenBody = mockMvc.perform(get("/me")
+        String garbageTokenBody = mockMvc.perform(get("/v1/me")
                         .header("Authorization", "Bearer not-a-real-jwt.abc.def"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401))
@@ -292,7 +292,7 @@ class AuthControllerIntegrationTest {
 
     /** Registers a user through the real endpoint, asserts 201, returns the response body. */
     private String register(String email, String password) throws Exception {
-        return mockMvc.perform(post("/auth/register")
+        return mockMvc.perform(post("/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(authJson(email, password)))
                 .andExpect(status().isCreated())

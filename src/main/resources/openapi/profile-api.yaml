@@ -4,7 +4,7 @@ info:
   description: Profile endpoints for the profile module.
   version: 1.0.0
 paths:
-  /me:
+  /v1/me:
     get:
       summary: Get the authenticated user's profile
       tags: [Profile]

@@ -12,13 +12,13 @@ info:
   version: 1.0.0
 
 paths:
-  /auth/register:
+  /v1/auth/register:
     post:
       summary: Register a new user
       tags: [Identity]
       description: >
         Creates a user and immediately authenticates them (auto-login): the
-        response carries a full token pair, so no separate /auth/login call is
+        response carries a full token pair, so no separate /v1/auth/login call is
         needed afterwards.
       requestBody:
         required: true
@@ -48,7 +48,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /auth/login:
+  /v1/auth/login:
     post:
       summary: Authenticate a user and issue tokens
       tags: [Identity]
@@ -81,7 +81,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /auth/refresh:
+  /v1/auth/refresh:
     post:
       summary: Exchange a valid refresh token for a new token pair (with rotation)
       tags: [Identity]
@@ -129,7 +129,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
-  /me:
+  /v1/me:
     get:
       summary: Get the currently authenticated user
       tags: [Identity]
@@ -157,7 +157,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Access token issued by /auth/register, /auth/login or /auth/refresh.
+      description: Access token issued by /v1/auth/register, /v1/auth/login or /v1/auth/refresh.
 
   schemas:
     RegisterRequest:
@@ -204,7 +204,7 @@ components:
 
     AuthResponse:
       type: object
-      description: Returned by /auth/register, /auth/login and /auth/refresh.
+      description: Returned by /v1/auth/register, /v1/auth/login and /v1/auth/refresh.
       properties:
         accessToken:
           type: string

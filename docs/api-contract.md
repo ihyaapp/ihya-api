@@ -1,0 +1,332 @@
+# Ihya API — contract
+
+**Status:** draft · **Last updated:** 2026-09-10
+**Canonical.** Both repos build to this document.
+`ihya-mobile` integrates against it (`docs/before-backend.md` is its planning
+view); `ihya-api` implements it. When they disagree, this file wins — update it
+first, in a PR of its own.
+
+Derived from `ihya-mobile/docs/before-backend.md` §3, `docs/content-model.md`,
+`docs/seed-data-spec.md`, the locked product decisions (2026-09-10), and the
+identity module already shipped here.
+
+---
+
+## 0. Conventions
+
+| Thing | Rule |
+|---|---|
+| **Base path** | `/v1`. Every path below is relative to it (`/v1/auth/login`, `/v1/me`, …). *Identity endpoints currently serve without the prefix — see §3.* |
+| **Auth** | `Authorization: Bearer <accessToken>` on everything except `/auth/*` and `/actuator/health`. Missing/invalid/expired → `401` with the standard error body. |
+| **Access token** | Signed JWT (HS384), 15 min. `sub` = user id. |
+| **Refresh token** | Opaque 64-byte URL-safe string, 30 days, SHA-256-hashed at rest, **rotated** on every `/auth/refresh`, reuse of a revoked token revokes the whole family. Carried in request/response bodies (Android-only for now; no cookie flow). |
+| **IDs** | Opaque UUID strings. Clients never parse meaning out of them. The catalogue additionally exposes a stable human `slug`. |
+| **Timestamps** | ISO-8601 UTC, e.g. `2026-09-10T18:50:26.301Z`. |
+| **Category reference** | Client-facing payloads use `categorySlug` (e.g. `faith-worship`), **never** the category UUID. |
+| **Content type** | `application/json` request and response. |
+| **Pagination** | Cursor-based for feeds (`/practices`, `/notifications`): `?cursor=<opaque>&limit=<n>`, response carries `nextCursor` (null at end). The catalogue is returned as a full list (small, long-cached). |
+| **Errors** | One shape everywhere (already implemented — `ErrorResponse` / `GlobalExceptionHandler` / `RestAuthenticationEntryPoint`): |
+
+```json
+{
+  "status": 409,
+  "error": "Conflict",
+  "message": "A user with that email address already exists",
+  "timestamp": "2026-09-10T18:50:26.301Z"
+}
+```
+
+Bean-validation failures return `400` with `message` = the field messages joined
+by `"; "`.
+
+---
+
+## 1. Data types (client-facing shapes)
+
+### Me
+```
+Me {
+  id: uuid
+  email: string
+  name: string | null
+  timezone: string          // IANA, e.g. "Asia/Karachi". Defaults to "UTC" until set.
+  interests: string[]       // categorySlug[], active categories only. [] = no preference.
+  personalizePromptDismissed: boolean
+  createdAt: datetime
+}
+```
+
+### Progress
+```
+Progress {
+  streak: number
+  longestStreak: number
+  totalPracticed: number
+  earnedMilestoneKeys: string[]   // keys mirror ihya-mobile/src/constants/milestones.ts ids;
+                                  // only the 5 concrete milestones are evaluated server-side for v1
+}
+```
+
+### NotificationPreferences
+```
+NotificationPreferences {
+  dailyReminder: boolean     // default true
+  streakReminder: boolean    // default true
+  weeklySummary: boolean     // default false
+  reminderTime: string       // "HH:mm" 24h, user's local time. default "09:00"
+}
+```
+
+### Category
+```
+Category {
+  slug: string               // stable, unique, e.g. "faith-worship"
+  name: string               // "Faith & Worship"
+  description: string
+  status: "active" | "coming-soon"
+  sunnahCount: number        // derived, count of sunnahs in this category
+}
+```
+
+Active slugs (10): `faith-worship`, `social-manners`, `home-family`,
+`food-eating`, `health-cleanliness`, `knowledge-learning`, `work-career`,
+`travel-journey`, `nature-creation`, `character-good-deeds`.
+Coming-soon (2, no sunnahs): `self-care`, `dua-supplication`.
+
+### Sunnah
+```
+Sunnah {
+  id: uuid                   // opaque
+  slug: string               // stable, unique, e.g. "smile-at-people"
+  title: string
+  categorySlug: string
+  source: string             // display citation, e.g. "Sahih al-Bukhari 24"
+  description: string        // English translation / explanation
+  reflection: string         // "try this today" instruction
+  arabicText: string | null  // full tashkeel; only when verified
+  prompt: string | null      // short curiosity question
+  tags: string[]             // reserved for seasonal targeting; [] for now
+}
+```
+
+> **Rename from the current entity:** `action` → `reflection`, `reference` →
+> `source` (and make it `NOT NULL`). New: `slug`, `arabicText`, `prompt`, `tags`.
+> See `ihya-mobile/docs/seed-data-spec.md` for the authoring rules.
+
+### Assignment
+```
+Assignment {
+  sunnah: Sunnah
+  replacementAvailable: boolean   // !replacementUsed && !practicedToday
+}
+```
+
+### Practice
+```
+Practice {
+  id: uuid
+  sunnahId: uuid
+  practiceDate: string       // "YYYY-MM-DD" in the user's timezone
+  feeling: string | null
+}
+```
+
+### PracticeResult   (POST /practices response)
+```
+PracticeResult {
+  practice: Practice
+  streak: number             // authoritative, strict-reset
+  longestStreak: number
+  totalPracticed: number
+  milestoneUnlocked: string | null   // milestone key just earned, else null
+}
+```
+
+### Notification
+```
+Notification {
+  id: uuid
+  type: "streak_reminder" | "milestone_earned" | "daily" | "weekly_summary" | string
+  title: string
+  body: string
+  createdAt: datetime        // real timestamp; client formats "2h ago"
+  read: boolean
+}
+```
+
+---
+
+## 2. Endpoints
+
+Status legend: **✅ built** · **🟡 partial** · **⬜ not started**
+
+### Auth
+
+| Method · Path | Req → Res | Codes | Status |
+|---|---|---|---|
+| `POST /auth/register` | `{ email, password, timezone? }` → `{ accessToken, expiresIn, refreshToken, userId }` | `201` · `400` · `409` | ✅ (add optional `timezone`) |
+| `POST /auth/login` | `{ email, password }` → same | `200` · `400` · `401` | ✅ |
+| `POST /auth/refresh` | `{ refreshToken }` → same (rotated) | `200` · `400` · `401` | ✅ |
+| `POST /auth/logout` | `{ refreshToken }` → *(empty)* | `204` · `400` | ⬜ (`RefreshTokenService.revokeToken` exists — wire a controller) |
+| `POST /auth/forgot-password` | `{ email }` → *(empty)* | `202` always (no account-existence leak) | ⬜ (email provider is an open decision — a `202` no-op is acceptable for v1) |
+
+`password`: min 8. `email`: format-validated, normalized (trim + lowercase),
+unique. Unknown-email and wrong-password return an identical `401` body.
+
+### Me & preferences
+
+| Method · Path | Req → Res | Codes | Status |
+|---|---|---|---|
+| `GET /me` | → `Me` | `200` · `401` | 🟡 (`MeResponse` today is `{id,email,createdAt}` — extend with `name`, `timezone`, `interests`, `personalizePromptDismissed`; compose from `UserService` + `ProfileService`) |
+| `PATCH /me` | `{ name?, email?, timezone?, interests?, personalizePromptDismissed? }` → `Me` | `200` · `400` · `401` · `409` (email taken) | ⬜ |
+| `DELETE /me` | → *(empty)* | `202` · `401` | ⬜ (soft-delete + enqueue purge; hard delete acceptable for v1 — open decision) |
+| `GET /me/progress` | → `Progress` | `200` · `401` | ⬜ |
+| `GET /me/notification-preferences` | → `NotificationPreferences` | `200` · `401` | ⬜ |
+| `PATCH /me/notification-preferences` | partial `NotificationPreferences` → full | `200` · `400` · `401` | ⬜ |
+| `POST /me/push-tokens` | `{ expoPushToken, platform: "ios" \| "android" }` → *(empty)* | `204` · `400` · `401` | ⬜ (upsert on `(user_id, expo_push_token)`) |
+
+> **`/me` collision resolved:** the standalone profile `GET /me` in
+> `openapi/profile-api.yaml` is **superseded** by this composite `GET /me`.
+> Retire `profile-api.yaml`'s `/me` path; keep the profile module as the owner of
+> `name` / `interests` / `personalizePromptDismissed`, surfaced through the
+> composite.
+
+### Catalogue
+
+| Method · Path | Req → Res | Codes | Status |
+|---|---|---|---|
+| `GET /categories` | → `Category[]` | `200` · `401` | ⬜ (service layer done — needs a controller) |
+| `GET /sunnahs` | → `Sunnah[]` | `200` · `401` | ⬜ (service layer done — needs a controller) |
+| `GET /sunnahs/{slug}` | → `Sunnah` | `200` · `401` · `404` | ⬜ |
+| `POST /categories` | `{ slug, name, description, status }` → `Category` | `201` · `400` · `401` · `403` · `409` | ⬜ **ADMIN only** |
+| `PATCH /categories/{slug}` | partial → `Category` | `200` · `400` · `401` · `403` · `404` · `409` | ⬜ **ADMIN only** |
+| `POST /sunnahs` | `Sunnah` sans `id` → `Sunnah` | `201` · `400` · `401` · `403` · `409` | ⬜ **ADMIN only** |
+| `PATCH /sunnahs/{slug}` | partial → `Sunnah` | `200` · `400` · `401` · `403` · `404` · `409` | ⬜ **ADMIN only** |
+| `DELETE /sunnahs/{slug}` | → *(empty)* | `204` · `401` · `403` · `404` | ⬜ **ADMIN only** |
+
+Reads are cacheable (`ETag` / long `Cache-Control`) — the mobile app fetches
+once and works offline from cache. Writes require `role = ADMIN` (the `Role`
+enum + `chk_users_role` already exist; wire method security). Catalogue content
+is seeded from `ihya-mobile/docs/seed-data-spec.md`.
+
+### Daily practice
+
+| Method · Path | Req → Res | Codes | Status |
+|---|---|---|---|
+| `GET /assignment/today` | → `Assignment` | `200` · `401` | ⬜ |
+| `POST /assignment/replacement` | `{ reason: string }` → `{ sunnah: Sunnah }` | `200` · `400` · `401` · `409` (already replaced / already practiced today) | ⬜ |
+| `POST /practices` | `{ sunnahId, feeling? }` → `PracticeResult` | `201` · `400` · `401` · `409` (already practiced today — body carries current state) | ⬜ |
+| `PATCH /practices/{id}` | `{ feeling }` → `Practice` | `200` · `400` · `401` · `404` | ⬜ (feeling only; never re-triggers streak) |
+| `GET /practices` | `?cursor=&limit=` → `{ items: (Practice & { sunnah: Sunnah })[], nextCursor }` | `200` · `401` | ⬜ |
+
+**Selection logic** (`GET /assignment/today`, `POST /assignment/replacement`):
+resolve the user's local date from `timezone`. If a `daily_assignments` row
+exists for `(user_id, local_date)`, return it. Otherwise pick a Sunnah —
+weighted toward `interests` when non-empty, excluding the last *N* practiced;
+when `interests` is empty, walk a **curated default order** (`categories.sort_order`
+then `sunnahs.created_at`) — persist the row, return it. `reason` on replacement
+is stored for analytics and **never** affects the pick.
+
+**One practice per day** (`POST /practices`): `INSERT ... ON CONFLICT
+(user_id, practice_date) DO NOTHING`; on conflict return `409` with the existing
+practice + current progress, not a 500. `practice_date` is a `date` set
+server-side from the user's tz.
+
+**Streak** (locked decision): strict reset to 0 after a missed local day.
+Compute in the same transaction as the insert. `longestStreak = max(...)`.
+Evaluate the 5 concrete milestones (`streak` 3/7/30, `total` 25/100) and return
+`milestoneUnlocked` (key) when one is newly earned; the 6 `special` milestones
+are not evaluated server-side for v1.
+
+### Notifications
+
+| Method · Path | Req → Res | Codes | Status |
+|---|---|---|---|
+| `GET /notifications` | `?cursor=&limit=` → `{ items: Notification[], nextCursor }` | `200` · `401` | ⬜ |
+| `POST /notifications/read` | `{ ids?: uuid[] }` (omit = mark all) → *(empty)* | `204` · `401` | ⬜ |
+
+Push delivery is server → Expo Push service, out of band. Push tokens register
+via `POST /me/push-tokens`.
+
+---
+
+## 3. Reconciliation — what changes in `ihya-api`
+
+Ordered as suggested migrations / PRs. Each lands green through CI, `dev` stays
+shippable.
+
+1. **`/v1` base path.** Add the prefix to every route (e.g.
+   `server.servlet.context-path: /v1`, or a `WebMvcConfigurer` path prefix).
+   Update the two OpenAPI files and the identity integration tests. Mobile sets
+   `EXPO_PUBLIC_API_URL` to `https://<host>/v1`.
+2. **Extend `/me` (V7 + code).** `profiles`: keep `name`, add
+   `personalize_prompt_dismissed boolean NOT NULL DEFAULT false`. `users`: add
+   `timezone varchar(64) NOT NULL DEFAULT 'UTC'`. New table
+   `user_interests (user_id uuid REFERENCES users, category_slug varchar,
+   PRIMARY KEY (user_id, category_slug))`. Compose `Me` from `UserService` +
+   `ProfileService`. Retire `profile-api.yaml`'s `/me`. Add `PATCH /me`,
+   `DELETE /me`.
+3. **Catalogue schema alignment (V8).** `categories`: add
+   `slug varchar UNIQUE NOT NULL`, `status varchar NOT NULL DEFAULT 'active'
+   CHECK (status IN ('active','coming-soon'))`, `sort_order int NOT NULL
+   DEFAULT 0`. `sunnahs`: add `slug varchar UNIQUE NOT NULL`; rename
+   `action → reflection`, `reference → source` (`source` becomes `NOT NULL`);
+   add `arabic_text text`, `prompt text`, `tags text[] NOT NULL DEFAULT '{}'`.
+   Update `Category` / `Sunnah` entities, services, and the `search` query.
+4. **Catalogue controllers + method security.** `CategoryController`,
+   `SunnahController`. Reads = any authenticated user; writes =
+   `@PreAuthorize("hasRole('ADMIN')")` (enable `@EnableMethodSecurity`, map the
+   `Role` into `GrantedAuthority` in `JwtAuthenticationFilter`).
+5. **Seed the catalogue (V9 or a runner).** Import the aligned spreadsheet from
+   `ihya-mobile/docs/seed-data-spec.md`.
+6. **Auth gaps.** `POST /auth/logout`, `POST /auth/forgot-password` (202 no-op
+   acceptable for v1).
+7. **Notification preferences + push tokens (V10).**
+   `notification_preferences (user_id PK, daily_reminder, streak_reminder,
+   weekly_summary, reminder_time time)`, `push_tokens (id, user_id,
+   expo_push_token, platform, created_at, UNIQUE(user_id, expo_push_token))`.
+   The three `GET/PATCH /me/notification-preferences` + `POST /me/push-tokens`.
+8. **Daily practice module (V11).**
+   `daily_assignments (user_id, assignment_date date, sunnah_id, replacement_used
+   boolean NOT NULL DEFAULT false, replacement_reason text, created_at,
+   PRIMARY KEY (user_id, assignment_date))`;
+   `practices (id, user_id, sunnah_id, practice_date date, feeling text,
+   created_at, UNIQUE (user_id, practice_date))`;
+   index `practices (user_id, practice_date DESC)`. Then the five endpoints,
+   selection logic, streak logic, `GET /me/progress`.
+9. **Notifications feed (V12).**
+   `notifications (id, user_id, type, title, body, created_at, read_at)`,
+   index `(user_id, created_at DESC)`. The two endpoints.
+
+---
+
+## 4. Build status at a glance
+
+| Area | State | Next |
+|---|---|---|
+| Identity (register / login / refresh / me) | ✅ shipped | `/v1` prefix; extend `Me` |
+| Auth logout / forgot-password | ⬜ | small, do with the `/v1` change |
+| Profile / preferences / push tokens | ⬜ | steps 2, 7 |
+| Catalogue (entities + services) | 🟡 no HTTP | steps 3–5 |
+| Daily practice | ⬜ empty package | step 8 — the core product |
+| Notifications | ⬜ | step 9 |
+| Milestones | client-owned definitions; server supplies earned state only | in step 8 |
+
+---
+
+## 5. Open decisions
+
+- **Auth model:** hand-rolled JWT in this service (already built) — **resolved**,
+  not Cognito.
+- **Hosting:** AWS. RDS Postgres. Compute shape (App Runner / ECS Fargate /
+  Elastic Beanstalk vs Lambda + API Gateway) — **open**.
+- **`forgot-password` email provider** (SES, Postmark, …) — **open**; `202`
+  no-op until chosen.
+- **`DELETE /me`** hard delete vs soft-delete + async purge — **open**; hard
+  delete acceptable for v1.
+- **Per-user timezone capture:** client sends IANA `timezone` on register and
+  syncs it via `PATCH /me`; server default `UTC` — **confirm the mobile side
+  sends `Intl.DateTimeFormat().resolvedOptions().timeZone`**.
+- **`interests` storage:** `user_interests` join table (chosen here) vs a
+  `text[]` column on `profiles` — join table for FK integrity; revisit if it
+  adds friction.

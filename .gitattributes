@@ -1,2 +1,2 @@
-* text=auto eol=lf
-*.cmd text eol=crlf
+* text=auto eol=lf  #for every file, let Git auto-detect if it's text, and when it is, normalize line endings to LF (Unix-style) in the repo. This keeps the repo canonical regardless of what OS someone commits from.
+*.cmd text eol=crlf #exception: .cmd files (like mvnw.cmd) always get CRLF, since Windows batch scripts expect that.
