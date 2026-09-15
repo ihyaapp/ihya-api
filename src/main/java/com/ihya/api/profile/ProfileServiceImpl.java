@@ -63,4 +63,10 @@ public class ProfileServiceImpl implements ProfileService {
 
         return savedProfile;
     }
+
+    @Override
+    public void deleteProfile(UUID userId) {
+        userInterestRepository.deleteAllByUserId(userId);
+        profileRepository.deleteById(userId);
+    }
 }

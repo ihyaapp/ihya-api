@@ -3,7 +3,9 @@ package com.ihya.api.identity;
 import com.ihya.api.profile.Profile;
 import com.ihya.api.profile.ProfileService;
 import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -56,5 +58,11 @@ public class UserController {
     public MeResponse updateMe(@AuthenticationPrincipal UUID userId, @Valid @RequestBody UpdateMeRequest request) {
         UpdateMeResult result = userService.updateMe(userId, request);
         return MeResponse.from(result.user(), result.profile(), result.interests());
+    }
+
+    @DeleteMapping("/me")
+    public ResponseEntity<Void> deleteMe(@AuthenticationPrincipal UUID userId) {
+        userService.deleteMe(userId);
+        return ResponseEntity.accepted().build();
     }
 }

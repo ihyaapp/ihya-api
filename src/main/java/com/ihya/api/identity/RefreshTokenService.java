@@ -111,6 +111,10 @@ public class RefreshTokenService {
         refreshTokenRepository.saveAll(activeTokens);
     }
 
+    public void deleteAllForUser(UUID userId) {
+        refreshTokenRepository.deleteAllByUserId(userId);
+    }
+
 
     public void revokeToken(String rawToken) {
         String hashedToken = hashToken(rawToken);

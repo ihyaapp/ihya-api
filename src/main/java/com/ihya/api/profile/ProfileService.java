@@ -8,4 +8,5 @@ public interface ProfileService {
     Profile getProfile(UUID userId);
     List<String> getInterestSlugs(UUID userId);
     Profile updateProfile(UUID userId, String name, Boolean personalizePromptDismissed, List<String> interests);
+    void deleteProfile(UUID userId);
 }

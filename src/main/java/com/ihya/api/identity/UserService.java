@@ -112,6 +112,14 @@ public class UserService {
         return new UpdateMeResult(savedUser, updatedProfile, interests);
     }
 
+    @Transactional
+    public void deleteMe(UUID userId) {
+        User user = getById(userId);
+        refreshTokenService.deleteAllForUser(userId);
+        profileService.deleteProfile(userId);
+        userRepository.delete(user);
+    }
+
     public Optional<User> findByEmail(String email) {
         return userRepository.findByEmail(normalizeEmail(email));
     }
