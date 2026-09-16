@@ -99,6 +99,67 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /v1/notifications:
+    get:
+      summary: List the caller's notification feed
+      tags: [Notifications]
+      security:
+        - bearerAuth: []
+      description: >
+        Cursor-paginated, newest first. The only producer in v1 is a
+        milestone_earned row, inserted inline by POST /practices when a
+        milestone unlocks — see docs/api-contract.md §5.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: One page of the caller's notification feed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationFeedPageResponse'
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/notifications/read:
+    post:
+      summary: Mark notifications as read
+      tags: [Notifications]
+      security:
+        - bearerAuth: []
+      description: >
+        Omitting ids (or sending an empty/null list) marks every unread
+        notification as read; otherwise only the given ids.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkNotificationsReadRequest'
+      responses:
+        '204':
+          description: Notifications marked read.
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -142,6 +203,49 @@ components:
           type: string
           nullable: true
           example: "18:30"
+
+    NotificationResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          description: e.g. "milestone_earned", "streak_reminder", "daily", "weekly_summary".
+          example: "milestone_earned"
+        title:
+          type: string
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        read:
+          type: boolean
+
+    NotificationFeedPageResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationResponse'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Opaque cursor for the next page, null at the end of the feed.
+
+    MarkNotificationsReadRequest:
+      type: object
+      description: ids omitted/null/empty means "mark every unread notification as read".
+      properties:
+        ids:
+          type: array
+          nullable: true
+          items:
+            type: string
+            format: uuid
 
     PushTokenRequest:
       type: object
