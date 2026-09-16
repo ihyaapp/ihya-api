@@ -1,8 +1,9 @@
 package com.ihya.api.dailypractice;
 
 import jakarta.persistence.Column;
-import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.IdClass;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
@@ -11,10 +12,16 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "daily_assignments")
+@IdClass(DailyAssignmentId.class)
 public class DailyAssignment {
 
-    @EmbeddedId
-    private DailyAssignmentId id;
+    @Id
+    @Column(name = "user_id")
+    private UUID userId;
+
+    @Id
+    @Column(name = "assignment_date")
+    private LocalDate assignmentDate;
 
     @Column(name = "sunnah_id", nullable = false)
     private UUID sunnahId;
@@ -33,22 +40,19 @@ public class DailyAssignment {
     }
 
     public DailyAssignment(UUID userId, LocalDate assignmentDate, UUID sunnahId) {
-        this.id = new DailyAssignmentId(userId, assignmentDate);
+        this.userId = userId;
+        this.assignmentDate = assignmentDate;
         this.sunnahId = sunnahId;
         this.replacementUsed = false;
         this.createdAt = Instant.now();
     }
 
-    public DailyAssignmentId getId() {
-        return id;
-    }
-
     public UUID getUserId() {
-        return id.getUserId();
+        return userId;
     }
 
     public LocalDate getAssignmentDate() {
-        return id.getAssignmentDate();
+        return assignmentDate;
     }
 
     public UUID getSunnahId() {
