@@ -181,7 +181,7 @@ unique. Unknown-email and wrong-password return an identical `401` body.
 | `GET /me` | → `Me` | `200` · `401` | ✅ (composes `UserService` + `ProfileService` — id, email, name, timezone, interests, personalizePromptDismissed, createdAt) |
 | `PATCH /me` | `{ name?, email?, timezone?, interests?, personalizePromptDismissed? }` → `Me` | `200` · `400` · `401` · `409` (email taken) | ✅ |
 | `DELETE /me` | → *(empty)* | `202` · `401` | ✅ (hard delete for v1 — see §5) |
-| `GET /me/progress` | → `Progress` | `200` · `401` | ⬜ |
+| `GET /me/progress` | → `Progress` | `200` · `401` | ✅ |
 | `GET /me/notification-preferences` | → `NotificationPreferences` | `200` · `401` | ✅ |
 | `PATCH /me/notification-preferences` | partial `NotificationPreferences` → full | `200` · `400` · `401` | ✅ |
 | `POST /me/push-tokens` | `{ expoPushToken, platform: "ios" \| "android" }` → *(empty)* | `204` · `400` · `401` | ✅ (upsert on `(user_id, expo_push_token)`) |
@@ -223,30 +223,47 @@ cache still depends on this.
 
 | Method · Path | Req → Res | Codes | Status |
 |---|---|---|---|
-| `GET /assignment/today` | → `Assignment` | `200` · `401` | ⬜ |
-| `POST /assignment/replacement` | `{ reason: string }` → `{ sunnah: Sunnah }` | `200` · `400` · `401` · `409` (already replaced / already practiced today) | ⬜ |
-| `POST /practices` | `{ sunnahId, feeling? }` → `PracticeResult` | `201` · `400` · `401` · `409` (already practiced today — body carries current state) | ⬜ |
-| `PATCH /practices/{id}` | `{ feeling }` → `Practice` | `200` · `400` · `401` · `404` | ⬜ (feeling only; never re-triggers streak) |
-| `GET /practices` | `?cursor=&limit=` → `{ items: (Practice & { sunnah: Sunnah })[], nextCursor }` | `200` · `401` | ⬜ |
+| `GET /assignment/today` | → `Assignment` | `200` · `401` | ✅ |
+| `POST /assignment/replacement` | `{ reason: string }` → `{ sunnah: Sunnah }` | `200` · `400` · `401` · `409` (already replaced / already practiced today) | ✅ |
+| `POST /practices` | `{ sunnahId, feeling? }` → `PracticeResult` | `201` · `400` · `401` · `409` (already practiced today — body carries current state) | ✅ |
+| `PATCH /practices/{id}` | `{ feeling }` → `Practice` | `200` · `400` · `401` · `404` | ✅ (feeling only; never re-triggers streak) |
+| `GET /practices` | `?cursor=&limit=` → `{ items: (Practice & { sunnah: Sunnah })[], nextCursor }` | `200` · `401` | ✅ |
 
-**Selection logic** (`GET /assignment/today`, `POST /assignment/replacement`):
-resolve the user's local date from `timezone`. If a `daily_assignments` row
-exists for `(user_id, local_date)`, return it. Otherwise pick a Sunnah —
-weighted toward `interests` when non-empty, excluding the last *N* practiced;
-when `interests` is empty, walk a **curated default order** (`categories.sort_order`
-then `sunnahs.created_at`) — persist the row, return it. `reason` on replacement
-is stored for analytics and **never** affects the pick.
+**Selection logic** (`GET /assignment/today`, `POST /assignment/replacement`)
+— **done.** Resolves the user's local date from `timezone`. If a
+`daily_assignments` row exists for `(user_id, local_date)`, return it.
+Otherwise pick a Sunnah, excluding the last 7 practiced: when `interests` is
+non-empty, weighted-random toward those categories (3× the weight of a
+non-interest Sunnah); when empty, walk a **curated default order**
+(`categories.sort_order` then `sunnahs.created_at`) — deterministic, no
+randomness. Persist the row (`daily_assignments_pkey` under `ON CONFLICT DO
+NOTHING`, so two simultaneous first-visits-of-the-day for the same user can't
+race each other into a 500), return it. `reason` on replacement is stored for
+analytics and **never** affects the pick.
 
-**One practice per day** (`POST /practices`): `INSERT ... ON CONFLICT
-(user_id, practice_date) DO NOTHING`; on conflict return `409` with the existing
-practice + current progress, not a 500. `practice_date` is a `date` set
-server-side from the user's tz.
+**One practice per day** (`POST /practices`) — **done.** `INSERT ... ON
+CONFLICT (user_id, practice_date) DO NOTHING`; on conflict return `409` with
+the existing practice + current progress, not a 500 — that `409` body
+deliberately isn't the shared `ErrorResponse` shape, since it's expected,
+routine state, not an error. `practice_date` is a `date` set server-side from
+the user's tz. (A first implementation tried to catch the unique-constraint
+violation and re-query for the existing row in the same transaction — Postgres
+refuses further commands on a transaction after one statement in it has
+thrown, and Spring separately marks the whole transaction rollback-only the
+instant that exception is thrown, so even isolating the retry in a fresh
+transaction still failed at commit. `ON CONFLICT DO NOTHING` avoids the
+problem: the conflict is an ordinary return value, not an exception.)
 
-**Streak** (locked decision): strict reset to 0 after a missed local day.
-Compute in the same transaction as the insert. `longestStreak = max(...)`.
-Evaluate the 5 concrete milestones (`streak` 3/7/30, `total` 25/100) and return
-`milestoneUnlocked` (key) when one is newly earned; the 6 `special` milestones
-are not evaluated server-side for v1.
+**Streak** (locked decision) — **done.** Strict reset to 0 after a missed
+local day. Denormalized on a new `user_progress` row per user (`streak`,
+`longest_streak`, `total_practiced`, `last_practice_date`) rather than
+recomputed from history on every read, updated in the same transaction as the
+practice insert. `longestStreak = max(...)`. Evaluates the 5 concrete
+milestones (`streak` 3/7/30, `total` 25/100) and returns `milestoneUnlocked`
+(key) when one is newly earned; the 6 `special` milestones are not evaluated
+server-side for v1. **The 5 milestone key strings (`streak_3` etc.) are
+placeholders** — `ihya-mobile/src/constants/milestones.ts` wasn't available
+while building this; confirm the exact strings match before this ships.
 
 ### Notifications
 
@@ -321,15 +338,29 @@ shippable.
    `GET/PATCH /me/notification-preferences` + `POST /me/push-tokens` endpoints
    are built; `notification-api.yaml` documents them. **Storage only** — no
    scheduler and no Expo push call yet; see §5.
-8. **Daily practice module (V12).**
+8. **Daily practice module (V12 + V13) — done.**
    `daily_assignments (user_id, assignment_date date, sunnah_id, replacement_used
    boolean NOT NULL DEFAULT false, replacement_reason text, created_at,
    PRIMARY KEY (user_id, assignment_date))`;
    `practices (id, user_id, sunnah_id, practice_date date, feeling text,
    created_at, UNIQUE (user_id, practice_date))`;
-   index `practices (user_id, practice_date DESC)`. Then the five endpoints,
-   selection logic, streak logic, `GET /me/progress`.
-9. **Notifications feed (V13).**
+   index `practices (user_id, practice_date DESC)` — all `V12`. A second
+   migration, `user_progress (user_id PK, streak, longest_streak,
+   total_practiced, last_practice_date)` (`V13`), was added mid-phase once
+   denormalized streak storage was chosen over recomputing from practice
+   history on every read — not in the original plan, discovered while
+   designing the streak requirement. New `com.ihya.api.dailypractice` module:
+   `AssignmentService`, `PracticeService`, `UserProgressService` and their
+   controllers. `AssignmentService`/`PracticeService` read the caller's
+   timezone off `UserRepository` directly rather than through `UserService`,
+   the one deliberate exception to "go through the owning module's service" —
+   `UserService.deleteMe` depends on these services for cleanup, so the
+   reverse dependency would be a circular Spring bean graph. All five
+   endpoints, selection logic, streak logic, `GET /me/progress` are built;
+   full test suite (entity, unit, and a full-stack integration test against
+   real Postgres) green.
+9. **Notifications feed (V14, shifted from V13 once step 8 needed
+   `user_progress` as an unplanned addition).**
    `notifications (id, user_id, type, title, body, created_at, read_at)`,
    index `(user_id, created_at DESC)`. The two endpoints.
 
@@ -344,9 +375,9 @@ shippable.
 | Profile (name / interests / personalizePromptDismissed, via composite `Me`) | ✅ shipped | — |
 | Notification preferences / push tokens | ✅ shipped (storage/API only) | scheduler + Expo push deferred, see §5 |
 | Catalogue | ✅ shipped | response caching (`ETag`/`Cache-Control`) still open |
-| Daily practice | ⬜ empty package | step 8 — the core product |
+| Daily practice | ✅ shipped | — |
 | Notifications | ⬜ | step 9 |
-| Milestones | client-owned definitions; server supplies earned state only | in step 8 |
+| Milestones | ✅ shipped (5 concrete milestones, server-evaluated) | key strings are placeholders — confirm against `ihya-mobile/src/constants/milestones.ts` |
 
 ---
 
@@ -374,3 +405,8 @@ shippable.
   timezone against their practice history and actually calls Expo's push API
   is real, separate scope (a background job, not just an endpoint) and is
   intentionally pushed to a future stretch phase, not cut.
+- **Milestone key strings:** `streak_3` / `streak_7` / `streak_30` / `total_25`
+  / `total_100` (step 8, `MilestoneEvaluator`) are self-describing
+  placeholders, not confirmed against `ihya-mobile/src/constants/milestones.ts`
+  — that file wasn't available while building step 8. **Open**: verify the
+  exact strings before this ships.
