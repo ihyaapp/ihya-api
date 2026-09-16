@@ -5,7 +5,6 @@ import com.ihya.api.catalogue.SunnahService;
 import com.ihya.api.identity.UserNotFoundException;
 import com.ihya.api.identity.UserRepository;
 import com.ihya.api.profile.ProfileService;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,7 +13,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -100,25 +98,26 @@ public class AssignmentService {
     }
 
     /**
-     * saveAndFlush (not save), wrapped the same way {@code UserService.register}
-     * handles a concurrent duplicate email: two simultaneous first-visits-of-the-day
-     * for the same user can both miss the {@code findByUserIdAndAssignmentDate}
-     * check above and both attempt to insert. The loser hits the
-     * {@code daily_assignments_pkey} constraint instead of getting a 500 — it
-     * just re-reads the row the winner created, which is exactly what it wanted.
+     * {@code INSERT ... ON CONFLICT DO NOTHING} ({@link
+     * DailyAssignmentRepository#insertIgnoringConflict}), not persist-and-catch:
+     * two simultaneous first-visits-of-the-day for the same user can both miss
+     * the {@code findByUserIdAndAssignmentDate} check above and both reach
+     * here. A thrown-and-caught unique-constraint violation doesn't work for
+     * this — Postgres refuses any further command on a transaction after one
+     * statement in it has thrown, and Spring separately marks the whole
+     * ambient transaction rollback-only the instant that exception is thrown,
+     * so even a fresh transaction for the retry still leaves the outer one
+     * doomed at commit (see {@code PracticeService.recordPractice}, which hit
+     * exactly this). {@code ON CONFLICT DO NOTHING} avoids the problem
+     * entirely: the loser just re-reads the row the winner created, in the
+     * same healthy transaction.
      */
     private DailyAssignment createAssignment(UUID userId, LocalDate date) {
         UUID sunnahId = pickSunnah(userId, recentSunnahIds(userId));
-        DailyAssignment assignment = new DailyAssignment(userId, date, sunnahId);
-        try {
-            return dailyAssignmentRepository.saveAndFlush(assignment);
-        } catch (DataIntegrityViolationException ex) {
-            if (!isAssignmentPkViolation(ex)) {
-                throw ex;
-            }
-            return dailyAssignmentRepository.findByUserIdAndAssignmentDate(userId, date)
-                    .orElseThrow(() -> ex);
-        }
+        dailyAssignmentRepository.insertIgnoringConflict(userId, date, sunnahId);
+        return dailyAssignmentRepository.findByUserIdAndAssignmentDate(userId, date)
+                .orElseThrow(() -> new IllegalStateException(
+                        "daily_assignments row missing immediately after insert for user " + userId));
     }
 
     private LocalDate resolveLocalDate(UUID userId) {
@@ -179,11 +178,5 @@ public class AssignmentService {
         boolean practicedToday = practiceRepository.findByUserIdAndPracticeDate(userId, today).isPresent();
         boolean replacementAvailable = !assignment.isReplacementUsed() && !practicedToday;
         return new AssignmentResult(assignment, replacementAvailable);
-    }
-
-    private static boolean isAssignmentPkViolation(DataIntegrityViolationException ex) {
-        Throwable cause = ex.getMostSpecificCause();
-        String message = cause == null ? null : cause.getMessage();
-        return message != null && message.toLowerCase(Locale.ROOT).contains("daily_assignments_pkey");
     }
 }
