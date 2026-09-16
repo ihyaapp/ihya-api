@@ -1,5 +1,7 @@
 package com.ihya.api.identity;
 
+import com.ihya.api.notification.NotificationPreferencesService;
+import com.ihya.api.notification.PushTokenService;
 import com.ihya.api.profile.ProfileService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +37,10 @@ class UserServiceTest {
     @Mock
     private ProfileService profileService;
     @Mock
+    private NotificationPreferencesService notificationPreferencesService;
+    @Mock
+    private PushTokenService pushTokenService;
+    @Mock
     private PasswordEncoder passwordEncoder;
     @Mock
     private JwtService jwtService;
@@ -49,8 +55,9 @@ class UserServiceTest {
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(userRepository, profileService, passwordEncoder,
-                jwtService, refreshTokenService, passwordResetTokenService, jwtProperties);
+        userService = new UserService(userRepository, profileService, notificationPreferencesService,
+                pushTokenService, passwordEncoder, jwtService, refreshTokenService, passwordResetTokenService,
+                jwtProperties);
     }
 
     // ----------------------------------------------------------------------
@@ -74,6 +81,7 @@ class UserServiceTest {
 
         verify(userRepository).saveAndFlush(any(User.class));
         verify(profileService).createProfile(newId);
+        verify(notificationPreferencesService).createDefaults(newId);
         verify(jwtService).generateAccessToken(newId);
         verify(refreshTokenService).issueRefreshToken(newId);
         assertThat(result.user()).isSameAs(savedUser);
@@ -135,7 +143,8 @@ class UserServiceTest {
 
         assertThat(thrown).isInstanceOf(EmailAlreadyRegisteredException.class);
         verify(userRepository, never()).saveAndFlush(any());
-        verifyNoInteractions(passwordEncoder, profileService, jwtService, refreshTokenService);
+        verifyNoInteractions(passwordEncoder, profileService, notificationPreferencesService, jwtService,
+                refreshTokenService);
     }
 
     @Test
@@ -169,7 +178,8 @@ class UserServiceTest {
 
         assertThat(thrown).isInstanceOf(EmailAlreadyRegisteredException.class);
         verify(userRepository, never()).saveAndFlush(any());
-        verifyNoInteractions(passwordEncoder, profileService, jwtService, refreshTokenService);
+        verifyNoInteractions(passwordEncoder, profileService, notificationPreferencesService, jwtService,
+                refreshTokenService);
     }
 
     @Test
@@ -184,7 +194,7 @@ class UserServiceTest {
         Throwable thrown = catchThrowable(() -> userService.register(email, "pw"));
 
         assertThat(thrown).isExactlyInstanceOf(EmailAlreadyRegisteredException.class);
-        verifyNoInteractions(profileService, jwtService, refreshTokenService);
+        verifyNoInteractions(profileService, notificationPreferencesService, jwtService, refreshTokenService);
     }
 
     @Test
@@ -200,7 +210,7 @@ class UserServiceTest {
         Throwable thrown = catchThrowable(() -> userService.register(email, "pw"));
 
         assertThat(thrown).isSameAs(dbError);
-        verifyNoInteractions(profileService, jwtService, refreshTokenService);
+        verifyNoInteractions(profileService, notificationPreferencesService, jwtService, refreshTokenService);
     }
 
     // ----------------------------------------------------------------------
@@ -328,6 +338,8 @@ class UserServiceTest {
 
         verify(refreshTokenService).deleteAllForUser(userId);
         verify(passwordResetTokenService).deleteAllForUser(userId);
+        verify(pushTokenService).deleteAllForUser(userId);
+        verify(notificationPreferencesService).deleteForUser(userId);
         verify(profileService).deleteProfile(userId);
         verify(userRepository).delete(user);
     }
@@ -340,7 +352,8 @@ class UserServiceTest {
         Throwable thrown = catchThrowable(() -> userService.deleteMe(userId));
 
         assertThat(thrown).isInstanceOf(UserNotFoundException.class);
-        verifyNoInteractions(refreshTokenService, passwordResetTokenService, profileService);
+        verifyNoInteractions(refreshTokenService, passwordResetTokenService, pushTokenService,
+                notificationPreferencesService, profileService);
         verify(userRepository, never()).delete(any());
     }
 

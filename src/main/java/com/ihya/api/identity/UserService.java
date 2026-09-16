@@ -1,5 +1,7 @@
 package com.ihya.api.identity;
 
+import com.ihya.api.notification.NotificationPreferencesService;
+import com.ihya.api.notification.PushTokenService;
 import com.ihya.api.profile.Profile;
 import com.ihya.api.profile.ProfileService;
 import org.slf4j.Logger;
@@ -23,6 +25,8 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final ProfileService profileService;
+    private final NotificationPreferencesService notificationPreferencesService;
+    private final PushTokenService pushTokenService;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
@@ -32,12 +36,16 @@ public class UserService {
 
     public UserService(UserRepository userRepository,
                        ProfileService profileService,
+                       NotificationPreferencesService notificationPreferencesService,
+                       PushTokenService pushTokenService,
                        PasswordEncoder passwordEncoder,JwtService jwtService,
                        RefreshTokenService refreshTokenService,
                        PasswordResetTokenService passwordResetTokenService,
                        JwtProperties jwtProperties) {
         this.userRepository = userRepository;
         this.profileService = profileService;
+        this.notificationPreferencesService = notificationPreferencesService;
+        this.pushTokenService = pushTokenService;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
@@ -73,6 +81,7 @@ public class UserService {
         }
 
         profileService.createProfile(savedUser.getId());
+        notificationPreferencesService.createDefaults(savedUser.getId());
 
         // Auto-login the new user: issue tokens directly rather than calling
         // login(), which would re-run BCrypt against the hash we just created.
@@ -124,6 +133,8 @@ public class UserService {
         User user = getById(userId);
         refreshTokenService.deleteAllForUser(userId);
         passwordResetTokenService.deleteAllForUser(userId);
+        pushTokenService.deleteAllForUser(userId);
+        notificationPreferencesService.deleteForUser(userId);
         profileService.deleteProfile(userId);
         userRepository.delete(user);
     }
