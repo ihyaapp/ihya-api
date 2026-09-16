@@ -4,6 +4,7 @@ import com.ihya.api.dailypractice.AssignmentService;
 import com.ihya.api.dailypractice.PracticeService;
 import com.ihya.api.dailypractice.UserProgressService;
 import com.ihya.api.notification.NotificationPreferencesService;
+import com.ihya.api.notification.NotificationService;
 import com.ihya.api.notification.PushTokenService;
 import com.ihya.api.profile.ProfileService;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,6 +45,8 @@ class UserServiceTest {
     @Mock
     private PushTokenService pushTokenService;
     @Mock
+    private NotificationService notificationService;
+    @Mock
     private AssignmentService assignmentService;
     @Mock
     private PracticeService practiceService;
@@ -65,8 +68,8 @@ class UserServiceTest {
     @BeforeEach
     void setUp() {
         userService = new UserService(userRepository, profileService, notificationPreferencesService,
-                pushTokenService, assignmentService, practiceService, userProgressService, passwordEncoder,
-                jwtService, refreshTokenService, passwordResetTokenService, jwtProperties);
+                pushTokenService, notificationService, assignmentService, practiceService, userProgressService,
+                passwordEncoder, jwtService, refreshTokenService, passwordResetTokenService, jwtProperties);
     }
 
     // ----------------------------------------------------------------------
@@ -352,6 +355,7 @@ class UserServiceTest {
         verify(passwordResetTokenService).deleteAllForUser(userId);
         verify(pushTokenService).deleteAllForUser(userId);
         verify(notificationPreferencesService).deleteForUser(userId);
+        verify(notificationService).deleteAllForUser(userId);
         verify(practiceService).deleteAllForUser(userId);
         verify(assignmentService).deleteAllForUser(userId);
         verify(userProgressService).deleteForUser(userId);
@@ -368,8 +372,8 @@ class UserServiceTest {
 
         assertThat(thrown).isInstanceOf(UserNotFoundException.class);
         verifyNoInteractions(refreshTokenService, passwordResetTokenService, pushTokenService,
-                notificationPreferencesService, practiceService, assignmentService, userProgressService,
-                profileService);
+                notificationPreferencesService, notificationService, practiceService, assignmentService,
+                userProgressService, profileService);
         verify(userRepository, never()).delete(any());
     }
 

@@ -4,6 +4,7 @@ import com.ihya.api.dailypractice.AssignmentService;
 import com.ihya.api.dailypractice.PracticeService;
 import com.ihya.api.dailypractice.UserProgressService;
 import com.ihya.api.notification.NotificationPreferencesService;
+import com.ihya.api.notification.NotificationService;
 import com.ihya.api.notification.PushTokenService;
 import com.ihya.api.profile.Profile;
 import com.ihya.api.profile.ProfileService;
@@ -30,6 +31,7 @@ public class UserService {
     private final ProfileService profileService;
     private final NotificationPreferencesService notificationPreferencesService;
     private final PushTokenService pushTokenService;
+    private final NotificationService notificationService;
     private final AssignmentService assignmentService;
     private final PracticeService practiceService;
     private final UserProgressService userProgressService;
@@ -44,6 +46,7 @@ public class UserService {
                        ProfileService profileService,
                        NotificationPreferencesService notificationPreferencesService,
                        PushTokenService pushTokenService,
+                       NotificationService notificationService,
                        AssignmentService assignmentService,
                        PracticeService practiceService,
                        UserProgressService userProgressService,
@@ -55,6 +58,7 @@ public class UserService {
         this.profileService = profileService;
         this.notificationPreferencesService = notificationPreferencesService;
         this.pushTokenService = pushTokenService;
+        this.notificationService = notificationService;
         this.assignmentService = assignmentService;
         this.practiceService = practiceService;
         this.userProgressService = userProgressService;
@@ -148,6 +152,7 @@ public class UserService {
         passwordResetTokenService.deleteAllForUser(userId);
         pushTokenService.deleteAllForUser(userId);
         notificationPreferencesService.deleteForUser(userId);
+        notificationService.deleteAllForUser(userId);
         practiceService.deleteAllForUser(userId);
         assignmentService.deleteAllForUser(userId);
         userProgressService.deleteForUser(userId);
