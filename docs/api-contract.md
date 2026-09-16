@@ -16,7 +16,7 @@ identity module already shipped here.
 
 | Thing | Rule |
 |---|---|
-| **Base path** | `/v1`. Every path below is relative to it (`/v1/auth/login`, `/v1/me`, …). *Identity endpoints currently serve without the prefix — see §3.* |
+| **Base path** | `/v1`. Every path below is relative to it (`/v1/auth/login`, `/v1/me`, …), applied via `WebConfig` to every `@RestController` route. |
 | **Auth** | `Authorization: Bearer <accessToken>` on everything except `/auth/*` and `/actuator/health`. Missing/invalid/expired → `401` with the standard error body. |
 | **Access token** | Signed JWT (HS384), 15 min. `sub` = user id. |
 | **Refresh token** | Opaque 64-byte URL-safe string, 30 days, SHA-256-hashed at rest, **rotated** on every `/auth/refresh`, reuse of a revoked token revokes the whole family. Carried in request/response bodies (Android-only for now; no cookie flow). |
@@ -178,19 +178,19 @@ unique. Unknown-email and wrong-password return an identical `401` body.
 
 | Method · Path | Req → Res | Codes | Status |
 |---|---|---|---|
-| `GET /me` | → `Me` | `200` · `401` | 🟡 (`MeResponse` today is `{id,email,createdAt}` — extend with `name`, `timezone`, `interests`, `personalizePromptDismissed`; compose from `UserService` + `ProfileService`) |
-| `PATCH /me` | `{ name?, email?, timezone?, interests?, personalizePromptDismissed? }` → `Me` | `200` · `400` · `401` · `409` (email taken) | ⬜ |
+| `GET /me` | → `Me` | `200` · `401` | ✅ (composes `UserService` + `ProfileService` — id, email, name, timezone, interests, personalizePromptDismissed, createdAt) |
+| `PATCH /me` | `{ name?, email?, timezone?, interests?, personalizePromptDismissed? }` → `Me` | `200` · `400` · `401` · `409` (email taken) | ✅ |
 | `DELETE /me` | → *(empty)* | `202` · `401` | ✅ (hard delete for v1 — see §5) |
 | `GET /me/progress` | → `Progress` | `200` · `401` | ⬜ |
 | `GET /me/notification-preferences` | → `NotificationPreferences` | `200` · `401` | ⬜ |
 | `PATCH /me/notification-preferences` | partial `NotificationPreferences` → full | `200` · `400` · `401` | ⬜ |
 | `POST /me/push-tokens` | `{ expoPushToken, platform: "ios" \| "android" }` → *(empty)* | `204` · `400` · `401` | ⬜ (upsert on `(user_id, expo_push_token)`) |
 
-> **`/me` collision resolved:** the standalone profile `GET /me` in
-> `openapi/profile-api.yaml` is **superseded** by this composite `GET /me`.
-> Retire `profile-api.yaml`'s `/me` path; keep the profile module as the owner of
-> `name` / `interests` / `personalizePromptDismissed`, surfaced through the
-> composite.
+> **`/me` collision resolved (done):** the standalone profile `GET /me` in
+> `openapi/profile-api.yaml` was **superseded** by this composite `GET /me` and
+> that path has been retired from the spec. The profile module remains the
+> owner of `name` / `interests` / `personalizePromptDismissed`, surfaced
+> through the composite.
 
 ### Catalogue
 
@@ -327,9 +327,10 @@ shippable.
 
 | Area | State | Next |
 |---|---|---|
-| Identity (register / login / refresh / me / delete) | ✅ shipped | `/v1` prefix |
+| Identity (register / login / refresh / me / delete) | ✅ shipped | — |
 | Auth logout / forgot-password / reset-password | ✅ shipped | — |
-| Profile / preferences / push tokens | ⬜ | steps 2, 7 |
+| Profile (name / interests / personalizePromptDismissed, via composite `Me`) | ✅ shipped | — |
+| Notification preferences / push tokens | ⬜ | step 7 |
 | Catalogue | ✅ shipped | response caching (`ETag`/`Cache-Control`) still open |
 | Daily practice | ⬜ empty package | step 8 — the core product |
 | Notifications | ⬜ | step 9 |
