@@ -23,7 +23,7 @@ public record SunnahResponse(
         String prompt,
         List<String> tags) {
 
-    static SunnahResponse from(Sunnah sunnah) {
+    public static SunnahResponse from(Sunnah sunnah) {
         return new SunnahResponse(
                 sunnah.getId(),
                 sunnah.getSlug(),
