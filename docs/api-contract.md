@@ -1,6 +1,6 @@
 # Ihya API — contract
 
-**Status:** draft · **Last updated:** 2026-09-10
+**Status:** draft · **Last updated:** 2026-09-16
 **Canonical.** Both repos build to this document.
 `ihya-mobile` integrates against it (`docs/before-backend.md` is its planning
 view); `ihya-api` implements it. When they disagree, this file wins — update it
@@ -196,19 +196,28 @@ unique. Unknown-email and wrong-password return an identical `401` body.
 
 | Method · Path | Req → Res | Codes | Status |
 |---|---|---|---|
-| `GET /categories` | → `Category[]` | `200` · `401` | ⬜ (service layer done — needs a controller) |
-| `GET /sunnahs` | → `Sunnah[]` | `200` · `401` | ⬜ (service layer done — needs a controller) |
-| `GET /sunnahs/{slug}` | → `Sunnah` | `200` · `401` · `404` | ⬜ |
-| `POST /categories` | `{ slug, name, description, status }` → `Category` | `201` · `400` · `401` · `403` · `409` | ⬜ **ADMIN only** |
-| `PATCH /categories/{slug}` | partial → `Category` | `200` · `400` · `401` · `403` · `404` · `409` | ⬜ **ADMIN only** |
-| `POST /sunnahs` | `Sunnah` sans `id` → `Sunnah` | `201` · `400` · `401` · `403` · `409` | ⬜ **ADMIN only** |
-| `PATCH /sunnahs/{slug}` | partial → `Sunnah` | `200` · `400` · `401` · `403` · `404` · `409` | ⬜ **ADMIN only** |
-| `DELETE /sunnahs/{slug}` | → *(empty)* | `204` · `401` · `403` · `404` | ⬜ **ADMIN only** |
+| `GET /categories` | → `Category[]` | `200` · `401` | ✅ |
+| `GET /sunnahs` | → `Sunnah[]` | `200` · `401` | ✅ |
+| `GET /sunnahs/{slug}` | → `Sunnah` | `200` · `401` · `404` | ✅ |
+| `POST /categories` | `{ slug, name, description, status }` → `Category` | `201` · `400` · `401` · `403` · `409` | ✅ **ADMIN only** |
+| `PATCH /categories/{slug}` | partial → `Category` | `200` · `400` · `401` · `403` · `404` · `409` | ✅ **ADMIN only** |
+| `POST /sunnahs` | `Sunnah` sans `id` → `Sunnah` | `201` · `400` · `401` · `403` · `409` | ✅ **ADMIN only** |
+| `PATCH /sunnahs/{slug}` | partial → `Sunnah` | `200` · `400` · `401` · `403` · `404` · `409` | ✅ **ADMIN only** |
+| `DELETE /sunnahs/{slug}` | → *(empty)* | `204` · `401` · `403` · `404` | ✅ **ADMIN only** |
 
-Reads are cacheable (`ETag` / long `Cache-Control`) — the mobile app fetches
-once and works offline from cache. Writes require `role = ADMIN` (the `Role`
-enum + `chk_users_role` already exist; wire method security). Catalogue content
-is seeded from `ihya-mobile/docs/seed-data-spec.md`.
+Writes require `role = ADMIN`, enforced via `@PreAuthorize("hasRole('ADMIN')")`
++ `@EnableMethodSecurity` — `JwtAuthenticationFilter` resolves the caller's
+`Role` fresh from the database on every request rather than embedding it in
+the JWT, so a role change takes effect immediately rather than after the
+15-minute access token expires. Catalogue content was seeded directly against
+`ihya-mobile/docs/seed-data-spec.md`'s shape and category reference table
+(migration `V10`) — no real spreadsheet export existed yet in `ihya-mobile`,
+so this is a one-time authored seed (30 Sunnahs, real cited sources,
+`arabicText` left blank pending verification), not an import; a proper
+CSV/JSON importer is still open for when the mobile team's spreadsheet is
+ready. **Not yet built:** response caching (`ETag` / long `Cache-Control`) on
+the catalogue reads — the mobile app fetching once and working offline from
+cache still depends on this.
 
 ### Daily practice
 
@@ -267,27 +276,40 @@ shippable.
    PRIMARY KEY (user_id, category_slug))`. Compose `Me` from `UserService` +
    `ProfileService`. Retire `profile-api.yaml`'s `/me`. Add `PATCH /me`,
    `DELETE /me`.
-3. **Catalogue schema alignment (V8).** `categories`: add
+3. **Catalogue schema alignment (V9) — done.** `categories`: added
    `slug varchar UNIQUE NOT NULL`, `status varchar NOT NULL DEFAULT 'active'
    CHECK (status IN ('active','coming-soon'))`, `sort_order int NOT NULL
-   DEFAULT 0`. `sunnahs`: add `slug varchar UNIQUE NOT NULL`; rename
-   `action → reflection`, `reference → source` (`source` becomes `NOT NULL`);
-   add `arabic_text text`, `prompt text`, `tags text[] NOT NULL DEFAULT '{}'`.
-   Update `Category` / `Sunnah` entities, services, and the `search` query.
-4. **Catalogue controllers + method security.** `CategoryController`,
+   DEFAULT 0`. `sunnahs`: added `slug varchar UNIQUE NOT NULL`; renamed
+   `action → reflection`, `reference → source` (`source` is now `NOT NULL`);
+   added `arabic_text text`, `prompt text`, `tags text[] NOT NULL DEFAULT '{}'`.
+   `Category` / `Sunnah` entities and services updated; the old paginated
+   `search` query was removed rather than updated, since `GET /sunnahs`
+   returns the full catalogue as one list, not a filtered page.
+4. **Catalogue controllers + method security — done.** `CategoryController`,
    `SunnahController`. Reads = any authenticated user; writes =
-   `@PreAuthorize("hasRole('ADMIN')")` (enable `@EnableMethodSecurity`, map the
-   `Role` into `GrantedAuthority` in `JwtAuthenticationFilter`).
-5. **Seed the catalogue (V9 or a runner).** Import the aligned spreadsheet from
-   `ihya-mobile/docs/seed-data-spec.md`.
+   `@PreAuthorize("hasRole('ADMIN')")`, `@EnableMethodSecurity` enabled on
+   `SecurityConfig`, `Role` mapped into a `GrantedAuthority` in
+   `JwtAuthenticationFilter` (looked up fresh per request rather than embedded
+   in the JWT, so a role change takes effect immediately). A failed check
+   renders the same `ErrorResponse` 403 shape as every other error
+   (`AuthorizationDeniedException` handled in `GlobalExceptionHandler`, since
+   Spring MVC's own exception resolution catches it before it can reach the
+   security filter chain's `AccessDeniedHandler`).
+5. **Seed the catalogue (V10) — done.** No real spreadsheet export existed yet
+   in `ihya-mobile`, so V10 authors 30 real, individually cited Sunnahs
+   directly (3 per active category) against `seed-data-spec.md`'s shape,
+   rather than importing one. `arabicText` is left blank throughout — the spec
+   requires a second source to verify it first, and that review hasn't
+   happened. A proper CSV/JSON importer is still open for whenever the real
+   spreadsheet lands.
 6. **Auth gaps.** `POST /auth/logout`, `POST /auth/forgot-password` +
    `POST /auth/reset-password` — **done** (V8 `password_reset_tokens`).
-7. **Notification preferences + push tokens (V10).**
+7. **Notification preferences + push tokens (V11).**
    `notification_preferences (user_id PK, daily_reminder, streak_reminder,
    weekly_summary, reminder_time time)`, `push_tokens (id, user_id,
    expo_push_token, platform, created_at, UNIQUE(user_id, expo_push_token))`.
    The three `GET/PATCH /me/notification-preferences` + `POST /me/push-tokens`.
-8. **Daily practice module (V11).**
+8. **Daily practice module (V12).**
    `daily_assignments (user_id, assignment_date date, sunnah_id, replacement_used
    boolean NOT NULL DEFAULT false, replacement_reason text, created_at,
    PRIMARY KEY (user_id, assignment_date))`;
@@ -295,7 +317,7 @@ shippable.
    created_at, UNIQUE (user_id, practice_date))`;
    index `practices (user_id, practice_date DESC)`. Then the five endpoints,
    selection logic, streak logic, `GET /me/progress`.
-9. **Notifications feed (V12).**
+9. **Notifications feed (V13).**
    `notifications (id, user_id, type, title, body, created_at, read_at)`,
    index `(user_id, created_at DESC)`. The two endpoints.
 
@@ -308,7 +330,7 @@ shippable.
 | Identity (register / login / refresh / me / delete) | ✅ shipped | `/v1` prefix |
 | Auth logout / forgot-password / reset-password | ✅ shipped | — |
 | Profile / preferences / push tokens | ⬜ | steps 2, 7 |
-| Catalogue (entities + services) | 🟡 no HTTP | steps 3–5 |
+| Catalogue | ✅ shipped | response caching (`ETag`/`Cache-Control`) still open |
 | Daily practice | ⬜ empty package | step 8 — the core product |
 | Notifications | ⬜ | step 9 |
 | Milestones | client-owned definitions; server supplies earned state only | in step 8 |
