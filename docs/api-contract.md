@@ -269,11 +269,24 @@ while building this; confirm the exact strings match before this ships.
 
 | Method · Path | Req → Res | Codes | Status |
 |---|---|---|---|
-| `GET /notifications` | `?cursor=&limit=` → `{ items: Notification[], nextCursor }` | `200` · `401` | ⬜ |
-| `POST /notifications/read` | `{ ids?: uuid[] }` (omit = mark all) → *(empty)* | `204` · `401` | ⬜ |
+| `GET /notifications` | `?cursor=&limit=` → `{ items: Notification[], nextCursor }` | `200` · `401` | ✅ |
+| `POST /notifications/read` | `{ ids?: uuid[] }` (omit = mark all) → *(empty)* | `204` · `401` | ✅ |
 
 Push delivery is server → Expo Push service, out of band. Push tokens register
 via `POST /me/push-tokens`.
+
+**`GET /notifications`** — cursor-paginated, newest first. Unlike the
+`practices`/`practice_date` cursor, `notifications.created_at` has no unique
+constraint backing it, so the cursor is encoded from the `(created_at, id)`
+pair rather than `created_at` alone — keeps pagination gap-free even when two
+rows share a timestamp. **`POST /notifications/read`** — omitting `ids` (or
+sending `null`/`[]`) marks every unread row read; otherwise only the given
+ids, via a bulk `UPDATE ... WHERE read_at IS NULL` rather than a
+fetch-then-save loop. The only producer in v1 is a `milestone_earned` row,
+inserted by `NotificationService.recordMilestoneEarned` inline in the same
+transaction as the `POST /practices` write that unlocked it (`PracticeService`
+now depends on `NotificationService`) — no scheduler needed for this part; see
+§5 for what's still deferred.
 
 ---
 
@@ -360,9 +373,24 @@ shippable.
    full test suite (entity, unit, and a full-stack integration test against
    real Postgres) green.
 9. **Notifications feed (V14, shifted from V13 once step 8 needed
-   `user_progress` as an unplanned addition).**
+   `user_progress` as an unplanned addition) — done.**
    `notifications (id, user_id, type, title, body, created_at, read_at)`,
-   index `(user_id, created_at DESC)`. The two endpoints.
+   index `(user_id, created_at DESC)`. New `Notification` entity/repository in
+   the existing `com.ihya.api.notification` module (alongside preferences/push
+   tokens), a new `NotificationFeedController` for the two endpoints (separate
+   from the existing `NotificationController`, same one-controller-per-resource
+   split as `AssignmentController`/`PracticeController` in `dailypractice`).
+   `PracticeService.recordPractice` now depends on `NotificationService` to
+   insert the `milestone_earned` row inline when `milestoneUnlocked != null`;
+   `UserService.deleteMe` now also deletes a user's `notifications` rows.
+   Full test suite (unit + a full-stack integration test against real
+   Postgres, including a real milestone-triggered notification end-to-end)
+   green. **Worth noting:** `NotificationService.markRead`'s two `@Modifying`
+   bulk-update queries need `@Transactional` to run at all — the same
+   requirement `PracticeService.recordPractice` already satisfies for its own
+   `@Modifying` insert (step 8) — a first version missed this and only the
+   integration test caught it (a plain unit test, with a mocked repository,
+   can't).
 
 ---
 
@@ -376,7 +404,7 @@ shippable.
 | Notification preferences / push tokens | ✅ shipped (storage/API only) | scheduler + Expo push deferred, see §5 |
 | Catalogue | ✅ shipped | response caching (`ETag`/`Cache-Control`) still open |
 | Daily practice | ✅ shipped | — |
-| Notifications | ⬜ | step 9 |
+| Notifications | ✅ shipped | scheduler + Expo push delivery deferred, see §5 |
 | Milestones | ✅ shipped (5 concrete milestones, server-evaluated) | key strings are placeholders — confirm against `ihya-mobile/src/constants/milestones.ts` |
 
 ---
@@ -400,11 +428,16 @@ shippable.
   `text[]` column on `profiles` — join table for FK integrity; revisit if it
   adds friction.
 - **Reminder delivery:** `notification_preferences` and `push_tokens` storage
-  and their three endpoints are built (step 7) — **deferred (decided
+  and their three endpoints are built (step 7), and the notification feed
+  itself is built (step 9 — `GET /notifications`, `POST /notifications/read`,
+  with `milestone_earned` as the only v1 producer) — **deferred (decided
   2026-09-15):** the scheduled job that checks each user's preferences +
   timezone against their practice history and actually calls Expo's push API
   is real, separate scope (a background job, not just an endpoint) and is
-  intentionally pushed to a future stretch phase, not cut.
+  intentionally pushed to a future stretch phase, not cut. `streak_reminder` /
+  `daily` / `weekly_summary` notification types exist in the contract's
+  `Notification.type` union but nothing produces them yet — only the
+  scheduler would.
 - **Milestone key strings:** `streak_3` / `streak_7` / `streak_30` / `total_25`
   / `total_100` (step 8, `MilestoneEvaluator`) are self-describing
   placeholders, not confirmed against `ihya-mobile/src/constants/milestones.ts`
