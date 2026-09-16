@@ -4,6 +4,7 @@ import com.ihya.api.catalogue.SunnahRepository;
 import com.ihya.api.identity.RefreshTokenRepository;
 import com.ihya.api.identity.UserRepository;
 import com.ihya.api.notification.NotificationPreferencesRepository;
+import com.ihya.api.notification.NotificationRepository;
 import com.ihya.api.notification.PushTokenRepository;
 import com.ihya.api.profile.ProfileRepository;
 import com.ihya.api.profile.UserInterestRepository;
@@ -68,6 +69,8 @@ class DailyPracticeControllerIntegrationTest {
     private UserProgressRepository userProgressRepository;
     @Autowired
     private SunnahRepository sunnahRepository;
+    @Autowired
+    private NotificationRepository notificationRepository;
 
     @BeforeEach
     @AfterEach
@@ -77,6 +80,7 @@ class DailyPracticeControllerIntegrationTest {
         profileRepository.deleteAllInBatch();
         pushTokenRepository.deleteAllInBatch();
         notificationPreferencesRepository.deleteAllInBatch();
+        notificationRepository.deleteAllInBatch();
         practiceRepository.deleteAllInBatch();
         dailyAssignmentRepository.deleteAllInBatch();
         userProgressRepository.deleteAllInBatch();
