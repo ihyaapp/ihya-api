@@ -6,6 +6,7 @@ import com.ihya.api.catalogue.SunnahNotFoundException;
 import com.ihya.api.catalogue.SunnahService;
 import com.ihya.api.identity.User;
 import com.ihya.api.identity.UserRepository;
+import com.ihya.api.notification.NotificationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,12 +49,15 @@ class PracticeServiceTest {
     private SunnahService sunnahService;
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private NotificationService notificationService;
 
     private PracticeService practiceService;
 
     @BeforeEach
     void setUp() {
-        practiceService = new PracticeService(practiceRepository, userProgressService, sunnahService, userRepository);
+        practiceService = new PracticeService(
+                practiceRepository, userProgressService, sunnahService, userRepository, notificationService);
     }
 
     // ----------------------------------------------------------------------
@@ -80,6 +84,7 @@ class PracticeServiceTest {
         assertThat(result.practice().getPracticeDate()).isEqualTo(TODAY);
         assertThat(result.milestoneUnlocked()).isNull();
         assertThat(result.progress()).isSameAs(progress);
+        verifyNoInteractions(notificationService);
     }
 
     @Test
@@ -100,6 +105,7 @@ class PracticeServiceTest {
         PracticeRecordResult result = practiceService.recordPractice(userId, sunnahId, null);
 
         assertThat(result.milestoneUnlocked()).isEqualTo("streak_3");
+        verify(notificationService).recordMilestoneEarned(userId, "streak_3");
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.ihya.api.dailypractice;
 import com.ihya.api.catalogue.SunnahService;
 import com.ihya.api.identity.UserNotFoundException;
 import com.ihya.api.identity.UserRepository;
+import com.ihya.api.notification.NotificationService;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,15 +30,18 @@ public class PracticeService {
     private final UserProgressService userProgressService;
     private final SunnahService sunnahService;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     public PracticeService(PracticeRepository practiceRepository,
                             UserProgressService userProgressService,
                             SunnahService sunnahService,
-                            UserRepository userRepository) {
+                            UserRepository userRepository,
+                            NotificationService notificationService) {
         this.practiceRepository = practiceRepository;
         this.userProgressService = userProgressService;
         this.sunnahService = sunnahService;
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     /**
@@ -78,6 +82,12 @@ public class PracticeService {
         String milestoneUnlocked = MilestoneEvaluator.newlyCrossed(
                 update.previousLongestStreak(), update.previousTotalPracticed(),
                 update.progress().getLongestStreak(), update.progress().getTotalPracticed());
+
+        if (milestoneUnlocked != null) {
+            // Same transaction as the practice write (docs/api-contract.md §3
+            // step 9) -- no scheduler needed for this notification type.
+            notificationService.recordMilestoneEarned(userId, milestoneUnlocked);
+        }
 
         return PracticeRecordResult.created(practice, update.progress(), milestoneUnlocked);
     }
