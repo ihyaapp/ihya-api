@@ -182,9 +182,9 @@ unique. Unknown-email and wrong-password return an identical `401` body.
 | `PATCH /me` | `{ name?, email?, timezone?, interests?, personalizePromptDismissed? }` → `Me` | `200` · `400` · `401` · `409` (email taken) | ✅ |
 | `DELETE /me` | → *(empty)* | `202` · `401` | ✅ (hard delete for v1 — see §5) |
 | `GET /me/progress` | → `Progress` | `200` · `401` | ⬜ |
-| `GET /me/notification-preferences` | → `NotificationPreferences` | `200` · `401` | ⬜ |
-| `PATCH /me/notification-preferences` | partial `NotificationPreferences` → full | `200` · `400` · `401` | ⬜ |
-| `POST /me/push-tokens` | `{ expoPushToken, platform: "ios" \| "android" }` → *(empty)* | `204` · `400` · `401` | ⬜ (upsert on `(user_id, expo_push_token)`) |
+| `GET /me/notification-preferences` | → `NotificationPreferences` | `200` · `401` | ✅ |
+| `PATCH /me/notification-preferences` | partial `NotificationPreferences` → full | `200` · `400` · `401` | ✅ |
+| `POST /me/push-tokens` | `{ expoPushToken, platform: "ios" \| "android" }` → *(empty)* | `204` · `400` · `401` | ✅ (upsert on `(user_id, expo_push_token)`) |
 
 > **`/me` collision resolved (done):** the standalone profile `GET /me` in
 > `openapi/profile-api.yaml` was **superseded** by this composite `GET /me` and
@@ -304,11 +304,23 @@ shippable.
    spreadsheet lands.
 6. **Auth gaps.** `POST /auth/logout`, `POST /auth/forgot-password` +
    `POST /auth/reset-password` — **done** (V8 `password_reset_tokens`).
-7. **Notification preferences + push tokens (V11).**
+7. **Notification preferences + push tokens (V11) — done.**
    `notification_preferences (user_id PK, daily_reminder, streak_reminder,
    weekly_summary, reminder_time time)`, `push_tokens (id, user_id,
    expo_push_token, platform, created_at, UNIQUE(user_id, expo_push_token))`.
-   The three `GET/PATCH /me/notification-preferences` + `POST /me/push-tokens`.
+   New `com.ihya.api.notification` module: `NotificationPreferencesService`
+   creates a default-valued preferences row for every user in the same
+   transaction as `UserService.register` (mirrors how `ProfileService`
+   guarantees a profile row exists — no lazy-create path, `GET` never 404s);
+   `PushTokenService.registerToken` upserts on `(user_id, expo_push_token)` by
+   attempting an insert and remapping the unique-constraint violation to a
+   silent no-op rather than an exception, since re-registering a device token
+   is expected, not an error (no `409` in this endpoint's contract).
+   `UserService.deleteMe` now also deletes `push_tokens` and
+   `notification_preferences` rows before the user row. The three
+   `GET/PATCH /me/notification-preferences` + `POST /me/push-tokens` endpoints
+   are built; `notification-api.yaml` documents them. **Storage only** — no
+   scheduler and no Expo push call yet; see §5.
 8. **Daily practice module (V12).**
    `daily_assignments (user_id, assignment_date date, sunnah_id, replacement_used
    boolean NOT NULL DEFAULT false, replacement_reason text, created_at,
@@ -330,7 +342,7 @@ shippable.
 | Identity (register / login / refresh / me / delete) | ✅ shipped | — |
 | Auth logout / forgot-password / reset-password | ✅ shipped | — |
 | Profile (name / interests / personalizePromptDismissed, via composite `Me`) | ✅ shipped | — |
-| Notification preferences / push tokens | ⬜ | step 7 |
+| Notification preferences / push tokens | ✅ shipped (storage/API only) | scheduler + Expo push deferred, see §5 |
 | Catalogue | ✅ shipped | response caching (`ETag`/`Cache-Control`) still open |
 | Daily practice | ⬜ empty package | step 8 — the core product |
 | Notifications | ⬜ | step 9 |
@@ -356,3 +368,9 @@ shippable.
 - **`interests` storage:** `user_interests` join table (chosen here) vs a
   `text[]` column on `profiles` — join table for FK integrity; revisit if it
   adds friction.
+- **Reminder delivery:** `notification_preferences` and `push_tokens` storage
+  and their three endpoints are built (step 7) — **deferred (decided
+  2026-09-15):** the scheduled job that checks each user's preferences +
+  timezone against their practice history and actually calls Expo's push API
+  is real, separate scope (a background job, not just an endpoint) and is
+  intentionally pushed to a future stretch phase, not cut.
