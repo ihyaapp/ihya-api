@@ -1,0 +1,174 @@
+openapi: 3.0.3
+info:
+  title: Ihya Notification API
+  description: >
+    Storage for how a user wants to be reminded, and where to push to.
+
+
+    Phase 4 scope — storage/API only. Nothing in this service yet reads
+    notification_preferences or sends to a registered push_tokens entry: the
+    scheduled job that would check preferences against practice history and
+    call Expo's push API is deferred to a future stretch phase (see
+    docs/api-contract.md §5). A notification_preferences row is created with
+    contract defaults for every user at registration (mirrors how a profile
+    row always exists) — GET never 404s.
+  version: 1.0.0
+
+paths:
+  /v1/me/notification-preferences:
+    get:
+      summary: Get the caller's notification preferences
+      tags: [Notifications]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The caller's current preferences.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferencesResponse'
+        '401':
+          description: Bearer token missing, malformed, expired, or naming a user that no longer exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      summary: Partially update the caller's notification preferences
+      tags: [Notifications]
+      security:
+        - bearerAuth: []
+      description: >
+        Every field is optional; omitted/null fields are left unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNotificationPreferencesRequest'
+      responses:
+        '200':
+          description: Updated preferences.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferencesResponse'
+        '400':
+          description: Request validation failed (e.g. reminderTime not in HH:mm 24h format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/me/push-tokens:
+    post:
+      summary: Register a device's Expo push token
+      tags: [Notifications]
+      security:
+        - bearerAuth: []
+      description: >
+        Upserts on (user_id, expoPushToken) — re-registering the same device
+        token is idempotent, not an error, so this endpoint has no 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushTokenRequest'
+      responses:
+        '204':
+          description: Token registered (or already was).
+        '400':
+          description: Request validation failed (blank expoPushToken, or platform not "ios"/"android").
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token issued by /v1/auth/register, /v1/auth/login or /v1/auth/refresh.
+
+  schemas:
+    NotificationPreferencesResponse:
+      type: object
+      properties:
+        dailyReminder:
+          type: boolean
+          default: true
+        streakReminder:
+          type: boolean
+          default: true
+        weeklySummary:
+          type: boolean
+          default: false
+        reminderTime:
+          type: string
+          description: 24h "HH:mm" in the user's local time.
+          example: "09:00"
+
+    UpdateNotificationPreferencesRequest:
+      type: object
+      description: All fields optional; null/omitted means "leave unchanged".
+      properties:
+        dailyReminder:
+          type: boolean
+          nullable: true
+        streakReminder:
+          type: boolean
+          nullable: true
+        weeklySummary:
+          type: boolean
+          nullable: true
+        reminderTime:
+          type: string
+          nullable: true
+          example: "18:30"
+
+    PushTokenRequest:
+      type: object
+      required: [expoPushToken, platform]
+      properties:
+        expoPushToken:
+          type: string
+          example: "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]"
+        platform:
+          type: string
+          enum: [ios, android]
+
+    ErrorResponse:
+      type: object
+      description: >
+        The single error shape used by every non-2xx response in this API,
+        produced by GlobalExceptionHandler and RestAuthenticationEntryPoint.
+      properties:
+        status:
+          type: integer
+          description: HTTP status code, repeated in the body.
+        error:
+          type: string
+          description: HTTP status reason phrase, e.g. "Bad Request".
+        message:
+          type: string
+          description: Human-readable detail.
+        timestamp:
+          type: string
+          format: date-time
