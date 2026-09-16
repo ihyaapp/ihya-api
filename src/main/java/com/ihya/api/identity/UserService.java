@@ -1,5 +1,8 @@
 package com.ihya.api.identity;
 
+import com.ihya.api.dailypractice.AssignmentService;
+import com.ihya.api.dailypractice.PracticeService;
+import com.ihya.api.dailypractice.UserProgressService;
 import com.ihya.api.notification.NotificationPreferencesService;
 import com.ihya.api.notification.PushTokenService;
 import com.ihya.api.profile.Profile;
@@ -27,6 +30,9 @@ public class UserService {
     private final ProfileService profileService;
     private final NotificationPreferencesService notificationPreferencesService;
     private final PushTokenService pushTokenService;
+    private final AssignmentService assignmentService;
+    private final PracticeService practiceService;
+    private final UserProgressService userProgressService;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
@@ -38,6 +44,9 @@ public class UserService {
                        ProfileService profileService,
                        NotificationPreferencesService notificationPreferencesService,
                        PushTokenService pushTokenService,
+                       AssignmentService assignmentService,
+                       PracticeService practiceService,
+                       UserProgressService userProgressService,
                        PasswordEncoder passwordEncoder,JwtService jwtService,
                        RefreshTokenService refreshTokenService,
                        PasswordResetTokenService passwordResetTokenService,
@@ -46,6 +55,9 @@ public class UserService {
         this.profileService = profileService;
         this.notificationPreferencesService = notificationPreferencesService;
         this.pushTokenService = pushTokenService;
+        this.assignmentService = assignmentService;
+        this.practiceService = practiceService;
+        this.userProgressService = userProgressService;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
@@ -82,6 +94,7 @@ public class UserService {
 
         profileService.createProfile(savedUser.getId());
         notificationPreferencesService.createDefaults(savedUser.getId());
+        userProgressService.createDefaults(savedUser.getId());
 
         // Auto-login the new user: issue tokens directly rather than calling
         // login(), which would re-run BCrypt against the hash we just created.
@@ -135,6 +148,9 @@ public class UserService {
         passwordResetTokenService.deleteAllForUser(userId);
         pushTokenService.deleteAllForUser(userId);
         notificationPreferencesService.deleteForUser(userId);
+        practiceService.deleteAllForUser(userId);
+        assignmentService.deleteAllForUser(userId);
+        userProgressService.deleteForUser(userId);
         profileService.deleteProfile(userId);
         userRepository.delete(user);
     }

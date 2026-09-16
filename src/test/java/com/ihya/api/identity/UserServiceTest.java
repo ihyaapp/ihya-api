@@ -1,5 +1,8 @@
 package com.ihya.api.identity;
 
+import com.ihya.api.dailypractice.AssignmentService;
+import com.ihya.api.dailypractice.PracticeService;
+import com.ihya.api.dailypractice.UserProgressService;
 import com.ihya.api.notification.NotificationPreferencesService;
 import com.ihya.api.notification.PushTokenService;
 import com.ihya.api.profile.ProfileService;
@@ -41,6 +44,12 @@ class UserServiceTest {
     @Mock
     private PushTokenService pushTokenService;
     @Mock
+    private AssignmentService assignmentService;
+    @Mock
+    private PracticeService practiceService;
+    @Mock
+    private UserProgressService userProgressService;
+    @Mock
     private PasswordEncoder passwordEncoder;
     @Mock
     private JwtService jwtService;
@@ -56,8 +65,8 @@ class UserServiceTest {
     @BeforeEach
     void setUp() {
         userService = new UserService(userRepository, profileService, notificationPreferencesService,
-                pushTokenService, passwordEncoder, jwtService, refreshTokenService, passwordResetTokenService,
-                jwtProperties);
+                pushTokenService, assignmentService, practiceService, userProgressService, passwordEncoder,
+                jwtService, refreshTokenService, passwordResetTokenService, jwtProperties);
     }
 
     // ----------------------------------------------------------------------
@@ -82,6 +91,7 @@ class UserServiceTest {
         verify(userRepository).saveAndFlush(any(User.class));
         verify(profileService).createProfile(newId);
         verify(notificationPreferencesService).createDefaults(newId);
+        verify(userProgressService).createDefaults(newId);
         verify(jwtService).generateAccessToken(newId);
         verify(refreshTokenService).issueRefreshToken(newId);
         assertThat(result.user()).isSameAs(savedUser);
@@ -143,8 +153,8 @@ class UserServiceTest {
 
         assertThat(thrown).isInstanceOf(EmailAlreadyRegisteredException.class);
         verify(userRepository, never()).saveAndFlush(any());
-        verifyNoInteractions(passwordEncoder, profileService, notificationPreferencesService, jwtService,
-                refreshTokenService);
+        verifyNoInteractions(passwordEncoder, profileService, notificationPreferencesService, userProgressService,
+                jwtService, refreshTokenService);
     }
 
     @Test
@@ -178,8 +188,8 @@ class UserServiceTest {
 
         assertThat(thrown).isInstanceOf(EmailAlreadyRegisteredException.class);
         verify(userRepository, never()).saveAndFlush(any());
-        verifyNoInteractions(passwordEncoder, profileService, notificationPreferencesService, jwtService,
-                refreshTokenService);
+        verifyNoInteractions(passwordEncoder, profileService, notificationPreferencesService, userProgressService,
+                jwtService, refreshTokenService);
     }
 
     @Test
@@ -194,7 +204,8 @@ class UserServiceTest {
         Throwable thrown = catchThrowable(() -> userService.register(email, "pw"));
 
         assertThat(thrown).isExactlyInstanceOf(EmailAlreadyRegisteredException.class);
-        verifyNoInteractions(profileService, notificationPreferencesService, jwtService, refreshTokenService);
+        verifyNoInteractions(profileService, notificationPreferencesService, userProgressService, jwtService,
+                refreshTokenService);
     }
 
     @Test
@@ -210,7 +221,8 @@ class UserServiceTest {
         Throwable thrown = catchThrowable(() -> userService.register(email, "pw"));
 
         assertThat(thrown).isSameAs(dbError);
-        verifyNoInteractions(profileService, notificationPreferencesService, jwtService, refreshTokenService);
+        verifyNoInteractions(profileService, notificationPreferencesService, userProgressService, jwtService,
+                refreshTokenService);
     }
 
     // ----------------------------------------------------------------------
@@ -340,6 +352,9 @@ class UserServiceTest {
         verify(passwordResetTokenService).deleteAllForUser(userId);
         verify(pushTokenService).deleteAllForUser(userId);
         verify(notificationPreferencesService).deleteForUser(userId);
+        verify(practiceService).deleteAllForUser(userId);
+        verify(assignmentService).deleteAllForUser(userId);
+        verify(userProgressService).deleteForUser(userId);
         verify(profileService).deleteProfile(userId);
         verify(userRepository).delete(user);
     }
@@ -353,7 +368,8 @@ class UserServiceTest {
 
         assertThat(thrown).isInstanceOf(UserNotFoundException.class);
         verifyNoInteractions(refreshTokenService, passwordResetTokenService, pushTokenService,
-                notificationPreferencesService, profileService);
+                notificationPreferencesService, practiceService, assignmentService, userProgressService,
+                profileService);
         verify(userRepository, never()).delete(any());
     }
 
