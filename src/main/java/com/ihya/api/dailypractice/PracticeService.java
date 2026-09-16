@@ -3,7 +3,6 @@ package com.ihya.api.dailypractice;
 import com.ihya.api.catalogue.SunnahService;
 import com.ihya.api.identity.UserNotFoundException;
 import com.ihya.api.identity.UserRepository;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,7 +12,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Base64;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 
 /**
@@ -43,29 +41,37 @@ public class PracticeService {
     }
 
     /**
-     * One practice per local day, enforced by {@code UNIQUE(user_id, practice_date)}
-     * — persist-and-remap, not check-then-insert (CLAUDE.md's uniqueness
-     * pattern), same as {@code UserService.register} on email. The conflict
-     * case isn't an error: it returns the existing state via
-     * {@link PracticeRecordResult#alreadyExisted}, matching how
-     * {@code PushTokenService} treats a duplicate registration as a normal
-     * outcome rather than a thrown exception.
+     * One practice per local day, enforced by {@code UNIQUE(user_id, practice_date)}.
+     *
+     * <p>Uses {@code INSERT ... ON CONFLICT DO NOTHING} ({@link
+     * PracticeRepository#insertIgnoringConflict}) rather than the codebase's
+     * usual persist-and-remap-a-thrown-exception pattern: a same-day conflict
+     * here needs a <em>follow-up read</em> in the same transaction (the
+     * existing practice + current progress), and a Postgres transaction
+     * refuses any further command once one statement in it has thrown —
+     * catching {@code DataIntegrityViolationException} and querying again
+     * right after doesn't work, and Spring additionally marks the whole
+     * ambient transaction rollback-only the moment that exception is thrown,
+     * so even isolating the retry in its own transaction still leaves the
+     * outer one doomed. {@code ON CONFLICT DO NOTHING} sidesteps this
+     * entirely: Postgres reports "0 rows inserted" as an ordinary result, not
+     * an exception, so the same transaction stays healthy for whatever comes
+     * next.
      */
     @Transactional
     public PracticeRecordResult recordPractice(UUID userId, UUID sunnahId, String feeling) {
         sunnahService.getById(sunnahId); // 404s via SunnahNotFoundException if the catalogue has no such Sunnah
         LocalDate today = resolveLocalDate(userId);
 
-        Practice practice = new Practice(userId, sunnahId, today, feeling);
-        try {
-            practice = practiceRepository.saveAndFlush(practice);
-        } catch (DataIntegrityViolationException ex) {
-            if (!isPracticeDateUniqueViolation(ex)) {
-                throw ex;
-            }
-            Practice existing = practiceRepository.findByUserIdAndPracticeDate(userId, today)
-                    .orElseThrow(() -> ex);
-            return PracticeRecordResult.alreadyExisted(existing, userProgressService.getProgress(userId));
+        int rowsInserted = practiceRepository.insertIgnoringConflict(userId, sunnahId, today, feeling);
+        Practice practice = practiceRepository.findByUserIdAndPracticeDate(userId, today)
+                .orElseThrow(() -> new IllegalStateException(
+                        "practices row missing immediately after insert for user " + userId));
+
+        if (rowsInserted == 0) {
+            // Someone else's write already claimed today -- not an error, the
+            // contract's own conflict case (existing practice + current progress).
+            return PracticeRecordResult.alreadyExisted(practice, userProgressService.getProgress(userId));
         }
 
         ProgressUpdate update = userProgressService.recordPractice(userId, today);
@@ -124,12 +130,5 @@ public class PracticeService {
         } catch (RuntimeException ex) {
             throw new IllegalArgumentException("Invalid cursor", ex);
         }
-    }
-
-    private static boolean isPracticeDateUniqueViolation(DataIntegrityViolationException ex) {
-        Throwable cause = ex.getMostSpecificCause();
-        String message = cause == null ? null : cause.getMessage();
-        return message != null
-                && message.toLowerCase(Locale.ROOT).contains("practices_user_id_practice_date_key");
     }
 }
