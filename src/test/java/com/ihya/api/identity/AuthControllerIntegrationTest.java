@@ -1,5 +1,8 @@
 package com.ihya.api.identity;
 
+import com.ihya.api.dailypractice.DailyAssignmentRepository;
+import com.ihya.api.dailypractice.PracticeRepository;
+import com.ihya.api.dailypractice.UserProgressRepository;
 import com.ihya.api.notification.NotificationPreferencesRepository;
 import com.ihya.api.notification.PushTokenRepository;
 import com.ihya.api.profile.ProfileRepository;
@@ -51,7 +54,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <h2>Isolation</h2>
  * Every test starts and ends against empty {@code refresh_tokens} / {@code profiles}
- * / {@code notification_preferences} / {@code push_tokens} / {@code users} tables
+ * / {@code notification_preferences} / {@code push_tokens} / {@code practices} /
+ * {@code daily_assignments} / {@code user_progress} / {@code users} tables
  * via {@link #resetDatabase()}. Explicit cleanup is used
  * rather than {@code @Transactional} test rollback because:
  * <ul>
@@ -89,6 +93,12 @@ class AuthControllerIntegrationTest {
     private NotificationPreferencesRepository notificationPreferencesRepository;
     @Autowired
     private PushTokenRepository pushTokenRepository;
+    @Autowired
+    private PracticeRepository practiceRepository;
+    @Autowired
+    private DailyAssignmentRepository dailyAssignmentRepository;
+    @Autowired
+    private UserProgressRepository userProgressRepository;
 
     @BeforeEach
     @AfterEach
@@ -99,6 +109,9 @@ class AuthControllerIntegrationTest {
         profileRepository.deleteAllInBatch();
         pushTokenRepository.deleteAllInBatch();
         notificationPreferencesRepository.deleteAllInBatch();
+        practiceRepository.deleteAllInBatch();
+        dailyAssignmentRepository.deleteAllInBatch();
+        userProgressRepository.deleteAllInBatch();
         userRepository.deleteAllInBatch();
     }
 

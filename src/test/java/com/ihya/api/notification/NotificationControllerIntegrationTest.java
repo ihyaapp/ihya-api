@@ -1,5 +1,8 @@
 package com.ihya.api.notification;
 
+import com.ihya.api.dailypractice.DailyAssignmentRepository;
+import com.ihya.api.dailypractice.PracticeRepository;
+import com.ihya.api.dailypractice.UserProgressRepository;
 import com.ihya.api.identity.RefreshTokenRepository;
 import com.ihya.api.identity.UserRepository;
 import com.ihya.api.profile.ProfileRepository;
@@ -49,6 +52,12 @@ class NotificationControllerIntegrationTest {
     private NotificationPreferencesRepository notificationPreferencesRepository;
     @Autowired
     private PushTokenRepository pushTokenRepository;
+    @Autowired
+    private PracticeRepository practiceRepository;
+    @Autowired
+    private DailyAssignmentRepository dailyAssignmentRepository;
+    @Autowired
+    private UserProgressRepository userProgressRepository;
 
     @BeforeEach
     @AfterEach
@@ -58,6 +67,9 @@ class NotificationControllerIntegrationTest {
         profileRepository.deleteAllInBatch();
         pushTokenRepository.deleteAllInBatch();
         notificationPreferencesRepository.deleteAllInBatch();
+        practiceRepository.deleteAllInBatch();
+        dailyAssignmentRepository.deleteAllInBatch();
+        userProgressRepository.deleteAllInBatch();
         userRepository.deleteAllInBatch();
     }
 
