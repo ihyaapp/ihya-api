@@ -28,13 +28,15 @@ public class NotificationService {
     }
 
     /**
-     * {@code milestoneKey} is one of {@code MilestoneEvaluator}'s placeholder
-     * keys (docs/api-contract.md §5) — the body text below inherits that same
-     * "not confirmed against ihya-mobile/src/constants/milestones.ts" caveat.
+     * {@code milestoneTitle} is the mobile-facing display title for the
+     * milestone that was just earned (e.g. {@code "3 day streak"}) — this
+     * module has no reason to know a milestone's key or thresholds itself,
+     * only how to word a notification once told what happened. The caller
+     * resolves it via {@code MilestoneEvaluator.titleFor}.
      */
-    public void recordMilestoneEarned(UUID userId, String milestoneKey) {
+    public void recordMilestoneEarned(UUID userId, String milestoneTitle) {
         notificationRepository.save(new Notification(userId, "milestone_earned", "Milestone unlocked!",
-                "You've earned the " + milestoneKey + " milestone. Keep it up!"));
+                "You just earned the \"" + milestoneTitle + "\" milestone. Keep it up!"));
     }
 
     public NotificationPage listNotifications(UUID userId, String cursor, int limit) {

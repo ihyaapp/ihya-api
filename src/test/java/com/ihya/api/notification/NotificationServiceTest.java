@@ -45,17 +45,17 @@ class NotificationServiceTest {
     // ----------------------------------------------------------------------
 
     @Test
-    void recordMilestoneEarned_savesNotificationWithMilestoneTypeAndKeyInBody() {
+    void recordMilestoneEarned_savesNotificationWithMilestoneTypeAndTitleInBody() {
         UUID userId = UUID.randomUUID();
         ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
 
-        notificationService.recordMilestoneEarned(userId, "streak_3");
+        notificationService.recordMilestoneEarned(userId, "3 day streak");
 
         verify(notificationRepository).save(captor.capture());
         Notification saved = captor.getValue();
         assertThat(saved.getUserId()).isEqualTo(userId);
         assertThat(saved.getType()).isEqualTo("milestone_earned");
-        assertThat(saved.getBody()).contains("streak_3");
+        assertThat(saved.getBody()).contains("3 day streak");
         assertThat(saved.isRead()).isFalse();
     }
 

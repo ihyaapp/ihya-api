@@ -104,8 +104,8 @@ class PracticeServiceTest {
 
         PracticeRecordResult result = practiceService.recordPractice(userId, sunnahId, null);
 
-        assertThat(result.milestoneUnlocked()).isEqualTo("streak_3");
-        verify(notificationService).recordMilestoneEarned(userId, "streak_3");
+        assertThat(result.milestoneUnlocked()).isEqualTo("3-day-streak");
+        verify(notificationService).recordMilestoneEarned(userId, "3 day streak");
     }
 
     @Test

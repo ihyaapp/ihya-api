@@ -86,7 +86,7 @@ public class PracticeService {
         if (milestoneUnlocked != null) {
             // Same transaction as the practice write (docs/api-contract.md §3
             // step 9) -- no scheduler needed for this notification type.
-            notificationService.recordMilestoneEarned(userId, milestoneUnlocked);
+            notificationService.recordMilestoneEarned(userId, MilestoneEvaluator.titleFor(milestoneUnlocked));
         }
 
         return PracticeRecordResult.created(practice, update.progress(), milestoneUnlocked);

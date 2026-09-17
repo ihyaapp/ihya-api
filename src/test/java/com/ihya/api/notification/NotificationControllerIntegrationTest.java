@@ -25,6 +25,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -227,11 +228,12 @@ class NotificationControllerIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(recordPracticeJson(sunnahId, null)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.milestoneUnlocked").value("streak_3"));
+                .andExpect(jsonPath("$.milestoneUnlocked").value("3-day-streak"));
 
         mockMvc.perform(get("/v1/notifications").header("Authorization", "Bearer " + registration.accessToken()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].type").value("milestone_earned"))
+                .andExpect(jsonPath("$.items[0].body", containsString("3 day streak")))
                 .andExpect(jsonPath("$.items[0].read").value(false));
     }
 

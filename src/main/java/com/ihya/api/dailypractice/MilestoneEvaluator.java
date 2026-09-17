@@ -10,12 +10,10 @@ import java.util.Map;
  * (docs/api-contract.md §2 "Streak" — the 6 {@code special} milestones are
  * client-owned and not evaluated here).
  *
- * <p><strong>Keys are placeholders.</strong> They must end up matching
- * {@code ihya-mobile/src/constants/milestones.ts} exactly, byte for byte —
- * that file wasn't available while writing this, so {@code streak_3} /
- * {@code streak_7} / {@code streak_30} / {@code total_25} / {@code total_100}
- * are self-describing stand-ins, not final. Confirm against the mobile repo
- * before this ships.
+ * <p>Keys and titles are copied verbatim from
+ * {@code ihya-mobile/src/constants/milestones.ts}'s {@code MILESTONES} array
+ * — the client looks up a server-reported key with {@code MILESTONES.find},
+ * so these must match byte for byte, not just carry the same meaning.
  *
  * <p>A milestone is "earned" against the user's all-time high
  * ({@code longestStreak} / {@code totalPracticed}), never the live
@@ -26,16 +24,28 @@ final class MilestoneEvaluator {
 
     private static final Map<Integer, String> STREAK_MILESTONES = new LinkedHashMap<>();
     private static final Map<Integer, String> TOTAL_MILESTONES = new LinkedHashMap<>();
+    private static final Map<String, String> TITLES = new LinkedHashMap<>();
 
     static {
-        STREAK_MILESTONES.put(3, "streak_3");
-        STREAK_MILESTONES.put(7, "streak_7");
-        STREAK_MILESTONES.put(30, "streak_30");
-        TOTAL_MILESTONES.put(25, "total_25");
-        TOTAL_MILESTONES.put(100, "total_100");
+        STREAK_MILESTONES.put(3, "3-day-streak");
+        STREAK_MILESTONES.put(7, "7-day-streak");
+        STREAK_MILESTONES.put(30, "30-day-streak");
+        TOTAL_MILESTONES.put(25, "25-practiced");
+        TOTAL_MILESTONES.put(100, "100-practiced");
+
+        TITLES.put("3-day-streak", "3 day streak");
+        TITLES.put("7-day-streak", "7 day streak");
+        TITLES.put("30-day-streak", "30 day streak");
+        TITLES.put("25-practiced", "25 Sunnahs revived");
+        TITLES.put("100-practiced", "100 Sunnahs revived");
     }
 
     private MilestoneEvaluator() {
+    }
+
+    /** The mobile-facing display title for a milestone key, e.g. {@code "3-day-streak"} &rarr; {@code "3 day streak"}. */
+    static String titleFor(String milestoneKey) {
+        return TITLES.get(milestoneKey);
     }
 
     /**

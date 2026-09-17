@@ -244,7 +244,7 @@ class DailyPracticeControllerIntegrationTest {
                         .content(recordPracticeJson(sunnahId, null)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.streak").value(3))
-                .andExpect(jsonPath("$.milestoneUnlocked").value("streak_3"));
+                .andExpect(jsonPath("$.milestoneUnlocked").value("3-day-streak"));
     }
 
     // ------------------------------------------------------------------
