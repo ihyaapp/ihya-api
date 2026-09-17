@@ -368,10 +368,11 @@ shippable.
    timezone off `UserRepository` directly rather than through `UserService`,
    the one deliberate exception to "go through the owning module's service" —
    `UserService.deleteMe` depends on these services for cleanup, so the
-   reverse dependency would be a circular Spring bean graph. All five
+   reverse dependency would be a circular Spring bean graph. All six
    endpoints, selection logic, streak logic, `GET /me/progress` are built;
    full test suite (entity, unit, and a full-stack integration test against
-   real Postgres) green.
+   real Postgres) green. `dailypractice-api.yaml` documents all six routes
+   (added in Phase 7, after this module had already shipped without a spec).
 9. **Notifications feed (V14, shifted from V13 once step 8 needed
    `user_progress` as an unplanned addition) — done.**
    `notifications (id, user_id, type, title, body, created_at, read_at)`,

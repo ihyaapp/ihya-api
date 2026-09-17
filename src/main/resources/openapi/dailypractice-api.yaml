@@ -1,0 +1,456 @@
+openapi: 3.0.3
+info:
+  title: Ihya Daily Practice API
+  description: >
+    The core habit loop: today's assigned Sunnah, requesting a one-time
+    replacement, recording a practice, editing how it felt, browsing history,
+    and reading streak/progress (docs/api-contract.md §1-§2 "Daily practice" /
+    "Streak").
+
+
+    An assignment is resolved lazily on first read for the caller's current
+    local day (their stored timezone, not server time) — there is no
+    scheduled job that pre-creates it. A replacement is available at most
+    once per assignment and only before that day's Sunnah has been practiced;
+    the reason given is stored for analytics only and never affects which
+    Sunnah is picked next. A practice is unique per (user, local day) —
+    recording a second one for the same day is not an error, it returns the
+    existing practice and current progress instead of creating a new row.
+    Only 5 of the mobile app's 11 milestones are evaluated server-side (the
+    3/7/30-day streak and 25/100-practiced ones); the remaining 6 "special"
+    milestones are client-owned and never appear in earnedMilestoneKeys or
+    milestoneUnlocked.
+  version: 1.0.0
+
+paths:
+  /v1/assignment/today:
+    get:
+      summary: Get (or lazily create) the caller's assignment for their current local day
+      tags: [Daily Practice]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Today's assigned Sunnah, plus whether a replacement is still available.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssignmentResponse'
+        '401':
+          description: Bearer token missing, malformed, expired, or naming a user that no longer exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/assignment/replacement:
+    post:
+      summary: Swap today's assigned Sunnah for a different one
+      tags: [Daily Practice]
+      security:
+        - bearerAuth: []
+      description: >
+        At most one replacement per day. Fails once today's assignment has
+        already been replaced, or once today's Sunnah has already been
+        practiced.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplacementRequest'
+      responses:
+        '200':
+          description: The newly assigned Sunnah for today.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReplacementResponse'
+        '400':
+          description: Request validation failed (blank reason).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: A replacement isn't available — already replaced today, or today's Sunnah already practiced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/practices:
+    post:
+      summary: Record a practice for the caller's current local day
+      tags: [Daily Practice]
+      security:
+        - bearerAuth: []
+      description: >
+        One practice per local day per user. Recording a second one for a day
+        that already has one is not an error — it returns 409 with the
+        existing practice and current progress rather than creating a
+        duplicate row; milestoneUnlocked is always null on that path, since
+        no new streak progress was made.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordPracticeRequest'
+      responses:
+        '201':
+          description: Practice recorded; progress and any newly-unlocked milestone.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PracticeResultResponse'
+        '400':
+          description: Request validation failed (sunnahId missing/not a UUID).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: sunnahId doesn't exist in the catalogue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: A practice for the caller's current local day already exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PracticeResultResponse'
+
+    get:
+      summary: List the caller's practice history
+      tags: [Daily Practice]
+      security:
+        - bearerAuth: []
+      description: >
+        Cursor-paginated, newest local day first. cursor is opaque — always
+        pass back the nextCursor from the previous page verbatim, never
+        construct one.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: One page of the caller's practice history, each item with its full Sunnah.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PracticeHistoryPageResponse'
+        '400':
+          description: Malformed cursor.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/practices/{id}:
+    patch:
+      summary: Update the feeling recorded on a practice
+      tags: [Daily Practice]
+      security:
+        - bearerAuth: []
+      description: >
+        Feeling only — this never re-triggers streak or milestone math.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFeelingRequest'
+      responses:
+        '200':
+          description: The updated practice.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PracticeResponse'
+        '400':
+          description: Request validation failed (blank feeling).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Bearer token missing, malformed, or expired.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: >
+            No practice with this id exists for the caller. A practice
+            belonging to a different user is reported identically (never
+            403), so this endpoint can't be used to probe which ids exist
+            for other users.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/me/progress:
+    get:
+      summary: Get the caller's streak and milestone progress
+      tags: [Daily Practice]
+      security:
+        - bearerAuth: []
+      description: >
+        A user with no practices yet gets streak 0, longestStreak 0,
+        totalPracticed 0, earnedMilestoneKeys []. GET never 404s.
+      responses:
+        '200':
+          description: The caller's current progress.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProgressResponse'
+        '401':
+          description: Bearer token missing, malformed, expired, or naming a user that no longer exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token issued by /v1/auth/register, /v1/auth/login or /v1/auth/refresh.
+
+  schemas:
+    AssignmentResponse:
+      type: object
+      properties:
+        sunnah:
+          $ref: '#/components/schemas/SunnahResponse'
+        replacementAvailable:
+          type: boolean
+          description: True until today's assignment has been replaced once or practiced.
+
+    ReplacementRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          description: Freeform; stored for analytics only, never affects Sunnah selection.
+          example: "Not feeling well today"
+
+    ReplacementResponse:
+      type: object
+      description: Deliberately just the new Sunnah, not the full AssignmentResponse shape.
+      properties:
+        sunnah:
+          $ref: '#/components/schemas/SunnahResponse'
+
+    RecordPracticeRequest:
+      type: object
+      required: [sunnahId]
+      properties:
+        sunnahId:
+          type: string
+          format: uuid
+        feeling:
+          type: string
+          nullable: true
+          description: Optional freeform note on how the practice felt.
+
+    UpdateFeelingRequest:
+      type: object
+      required: [feeling]
+      properties:
+        feeling:
+          type: string
+
+    PracticeResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        sunnahId:
+          type: string
+          format: uuid
+        practiceDate:
+          type: string
+          format: date
+          description: The local day the practice was recorded for, "YYYY-MM-DD".
+        feeling:
+          type: string
+          nullable: true
+
+    PracticeResultResponse:
+      type: object
+      description: >
+        Same shape on 201 (newly recorded) and 409 (already recorded today) —
+        only milestoneUnlocked is always null on the 409 path.
+      properties:
+        practice:
+          $ref: '#/components/schemas/PracticeResponse'
+        streak:
+          type: integer
+        longestStreak:
+          type: integer
+        totalPracticed:
+          type: integer
+        milestoneUnlocked:
+          type: string
+          nullable: true
+          description: >
+            Key of the single milestone newly crossed by this write, e.g.
+            "7-day-streak", or null. Only one of the 5 server-evaluated
+            milestones can be reported per write; streak milestones take
+            priority over total-practiced milestones if both are crossed at
+            once.
+          example: "7-day-streak"
+
+    PracticeHistoryItemResponse:
+      type: object
+      description: A Practice, flattened, plus the full Sunnah it was practiced for.
+      properties:
+        id:
+          type: string
+          format: uuid
+        sunnahId:
+          type: string
+          format: uuid
+        practiceDate:
+          type: string
+          format: date
+        feeling:
+          type: string
+          nullable: true
+        sunnah:
+          $ref: '#/components/schemas/SunnahResponse'
+
+    PracticeHistoryPageResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PracticeHistoryItemResponse'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Opaque cursor for the next page, null at the end of the history.
+
+    ProgressResponse:
+      type: object
+      properties:
+        streak:
+          type: integer
+          description: Current consecutive local-day streak; 0 once a day is missed.
+        longestStreak:
+          type: integer
+          description: All-time high streak, never decreases.
+        totalPracticed:
+          type: integer
+        earnedMilestoneKeys:
+          type: array
+          items:
+            type: string
+          description: >
+            Every server-evaluated milestone earned so far, judged against
+            longestStreak/totalPracticed (the all-time high), never the live
+            streak — e.g. reaching a 7-day streak once keeps "7-day-streak"
+            here permanently, even after streak later resets to 0. Limited to
+            the 5 server-evaluated keys ("3-day-streak", "7-day-streak",
+            "30-day-streak", "25-practiced", "100-practiced"); the mobile
+            app's other 6 "special" milestones are client-owned and never
+            appear here.
+          example: ["3-day-streak", "7-day-streak"]
+
+    SunnahResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+          example: use-the-miswak
+        title:
+          type: string
+        categorySlug:
+          type: string
+          example: health-cleanliness
+        source:
+          type: string
+          example: Sahih al-Bukhari 887
+        description:
+          type: string
+        reflection:
+          type: string
+          description: The "try this today" instruction.
+        arabicText:
+          type: string
+          nullable: true
+        prompt:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+
+    ErrorResponse:
+      type: object
+      description: >
+        The single error shape used by every non-2xx response in this API,
+        produced by GlobalExceptionHandler, DailyPracticeExceptionHandler and
+        RestAuthenticationEntryPoint.
+      properties:
+        status:
+          type: integer
+          description: HTTP status code, repeated in the body.
+        error:
+          type: string
+          description: HTTP status reason phrase, e.g. "Bad Request".
+        message:
+          type: string
+          description: Human-readable detail.
+        timestamp:
+          type: string
+          format: date-time
