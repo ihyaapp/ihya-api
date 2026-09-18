@@ -1,6 +1,6 @@
 # Ihya API — contract
 
-**Status:** draft · **Last updated:** 2026-09-16
+**Status:** draft · **Last updated:** 2026-09-18
 **Canonical.** Both repos build to this document.
 `ihya-mobile` integrates against it (`docs/before-backend.md` is its planning
 view); `ihya-api` implements it. When they disagree, this file wins — update it
@@ -164,7 +164,7 @@ Status legend: **✅ built** · **🟡 partial** · **⬜ not started**
 
 | Method · Path | Req → Res | Codes | Status |
 |---|---|---|---|
-| `POST /auth/register` | `{ email, password, timezone? }` → `{ accessToken, expiresIn, refreshToken, userId }` | `201` · `400` · `409` | ✅ (add optional `timezone`) |
+| `POST /auth/register` | `{ email, password }` → `{ accessToken, expiresIn, refreshToken, userId }` | `201` · `400` · `409` | ✅ (no `timezone` field — see §5 "Per-user timezone capture") |
 | `POST /auth/login` | `{ email, password }` → same | `200` · `400` · `401` | ✅ |
 | `POST /auth/refresh` | `{ refreshToken }` → same (rotated) | `200` · `400` · `401` | ✅ |
 | `POST /auth/logout` | `{ refreshToken }` → *(empty)* | `204` · `400` | ✅ |
@@ -261,9 +261,11 @@ recomputed from history on every read, updated in the same transaction as the
 practice insert. `longestStreak = max(...)`. Evaluates the 5 concrete
 milestones (`streak` 3/7/30, `total` 25/100) and returns `milestoneUnlocked`
 (key) when one is newly earned; the 6 `special` milestones are not evaluated
-server-side for v1. **The 5 milestone key strings (`streak_3` etc.) are
-placeholders** — `ihya-mobile/src/constants/milestones.ts` wasn't available
-while building this; confirm the exact strings match before this ships.
+server-side for v1. **The 5 milestone key strings are confirmed** —
+`MilestoneEvaluator` uses `3-day-streak` / `7-day-streak` / `30-day-streak` /
+`25-practiced` / `100-practiced`, matched byte-for-byte against
+`ihya-mobile/src/constants/milestones.ts`'s `MILESTONES` array (verified
+during Phase 7's client integration).
 
 ### Notifications
 
@@ -406,7 +408,7 @@ shippable.
 | Catalogue | ✅ shipped | response caching (`ETag`/`Cache-Control`) still open |
 | Daily practice | ✅ shipped | — |
 | Notifications | ✅ shipped | scheduler + Expo push delivery deferred, see §5 |
-| Milestones | ✅ shipped (5 concrete milestones, server-evaluated) | key strings are placeholders — confirm against `ihya-mobile/src/constants/milestones.ts` |
+| Milestones | ✅ shipped (5 concrete milestones, server-evaluated, key strings confirmed against `ihya-mobile/src/constants/milestones.ts`) | — |
 
 ---
 
@@ -422,9 +424,20 @@ shippable.
 - **`DELETE /me`** hard delete vs soft-delete + async purge — **resolved for
   v1**: hard delete, built. Revisit soft-delete + async purge if/when this
   needs real user-facing recoverability.
-- **Per-user timezone capture:** client sends IANA `timezone` on register and
-  syncs it via `PATCH /me`; server default `UTC` — **confirm the mobile side
-  sends `Intl.DateTimeFormat().resolvedOptions().timeZone`**.
+- **Per-user timezone capture — found during Phase 7, still open:** the plan
+  was for the client to send IANA `timezone` on register and sync it via
+  `PATCH /me`; neither ever got built. `POST /auth/register` has no
+  `timezone` field (confirmed against the real `RegisterRequest` — email +
+  password only), and `ihya-mobile` never calls `PATCH /me` with a timezone
+  from any screen. Every real user's `timezone` stays the server default,
+  `"UTC"`, permanently. This is silent and low-visibility (nothing errors),
+  but it means the "local day" boundary that streaks/assignments key off of
+  is quietly wrong for any user not in UTC. Fix: either add `timezone?` to
+  `RegisterRequest` and have the client send
+  `Intl.DateTimeFormat().resolvedOptions().timeZone` at registration, or have
+  `ProfileContext.updateProfile` sync it opportunistically on app launch —
+  either way, both an API contract change and a mobile change, not a
+  docs-only fix.
 - **`interests` storage:** `user_interests` join table (chosen here) vs a
   `text[]` column on `profiles` — join table for FK integrity; revisit if it
   adds friction.
@@ -439,8 +452,8 @@ shippable.
   `daily` / `weekly_summary` notification types exist in the contract's
   `Notification.type` union but nothing produces them yet — only the
   scheduler would.
-- **Milestone key strings:** `streak_3` / `streak_7` / `streak_30` / `total_25`
-  / `total_100` (step 8, `MilestoneEvaluator`) are self-describing
-  placeholders, not confirmed against `ihya-mobile/src/constants/milestones.ts`
-  — that file wasn't available while building step 8. **Open**: verify the
-  exact strings before this ships.
+- **Milestone key strings:** **resolved.** `MilestoneEvaluator` uses
+  `3-day-streak` / `7-day-streak` / `30-day-streak` / `25-practiced` /
+  `100-practiced`, confirmed byte-for-byte against
+  `ihya-mobile/src/constants/milestones.ts`'s `MILESTONES` array during
+  Phase 7's client integration.
