@@ -27,8 +27,9 @@ export DB_PASSWORD=your_password
 # Run a single test method
 ./mvnw test -Dtest=AuthControllerIntegrationTest#login_wrongPassword_returns401WithInvalidCredentialsShape
 
-# Run the app locally
-./mvnw spring-boot:run
+# Run the app locally — the `local` profile is required; application.yml has no
+# datasource config on its own (see dev-workflow.md §6.1)
+./mvnw spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
 There is no configured linter/formatter plugin (no Checkstyle/Spotless in `pom.xml`) — `verify` is the whole local gate.
@@ -37,7 +38,7 @@ There is no configured linter/formatter plugin (no Checkstyle/Spotless in `pom.x
 
 ## Architecture
 
-**Modules are domain packages, not technical layers.** Under `com.ihya.api`: `identity` (auth, users, JWT), `profile` (display name, prefs), `catalogue` (categories/Sunnahs), `dailypractice` (placeholder, not yet implemented), `common.web` (shared HTTP infrastructure). Each module owns its entities, repository, service, and controller together; there's no repo-wide `controllers`/`services` split.
+**Modules are domain packages, not technical layers.** Under `com.ihya.api`: `identity` (auth, users, JWT), `profile` (display name, prefs), `catalogue` (categories/Sunnahs), `dailypractice` (assignments, practices, streak/milestone progress), `notification` (notification preferences, push tokens, the in-app notification feed), `common.web` (shared HTTP infrastructure). Each module owns its entities, repository, service, and controller together; there's no repo-wide `controllers`/`services` split.
 
 **Two-tier exception handling.** `common.web.GlobalExceptionHandler` (`@Order(LOWEST_PRECEDENCE)`) is module-agnostic: it handles `IllegalArgumentException` → 400, `@Valid` binding failures → 400 (all field errors joined, not just the first), unparseable JSON → 400, and a catch-all `Exception` → 500 (logged server-side, never echoed to the client). Each module additionally owns its own `@RestControllerAdvice` at `@Order(HIGHEST_PRECEDENCE)` (`IdentityExceptionHandler`, `CatalogueExceptionHandler`) for its own domain exceptions (e.g. `EmailAlreadyRegisteredException` → 409). Both tiers render the same `ErrorResponse` shape (`status`/`error`/`message`/`timestamp`). Adding a new module's HTTP surface means adding its own advice class, not editing the shared one.
 
@@ -51,7 +52,7 @@ There is no configured linter/formatter plugin (no Checkstyle/Spotless in `pom.x
 
 **Migrations.** Flyway, versioned SQL under `src/main/resources/db/migration` (`V1__init.sql` onward). Migrations are additive/forward-only — never edit a shipped migration file; add a new `Vn__description.sql`. Verify against a fresh database (`docker compose down -v && docker compose up -d`) when a migration changes shape, per dev-workflow.md §8.
 
-**OpenAPI specs** under `src/main/resources/openapi/` (`identity-api.yaml`, `profile-api.yaml`) are hand-maintained documentation, not codegen input — keep them in sync with controllers by hand when routes change.
+**OpenAPI specs** under `src/main/resources/openapi/` (`identity-api.yaml`, `profile-api.yaml`, `catalogue-api.yaml`, `dailypractice-api.yaml`, `notification-api.yaml`) are hand-maintained documentation, not codegen input — keep them in sync with controllers by hand when routes change. `profile-api.yaml` documents that the module has no standalone HTTP surface of its own (superseded by identity's composite `/v1/me`).
 
 ## Working with this repo
 
