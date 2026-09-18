@@ -391,7 +391,7 @@ class DailyPracticeControllerIntegrationTest {
     }
 
     private UUID seededSunnahId() {
-        return sunnahRepository.findBySlug("use-the-miswak").orElseThrow().getId();
+        return sunnahRepository.findBySlug("use-the-miswak-before-prayer").orElseThrow().getId();
     }
 
     private static String recordPracticeJson(UUID sunnahId, String feeling) {

@@ -68,7 +68,7 @@ class CatalogueControllerIntegrationTest {
         mockMvc.perform(get("/v1/categories").header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[?(@.slug == 'faith-worship')]").exists())
-                .andExpect(jsonPath("$[?(@.slug == 'faith-worship')].sunnahCount").value(3));
+                .andExpect(jsonPath("$[?(@.slug == 'faith-worship')].sunnahCount").value(9));
     }
 
     @Test
@@ -77,7 +77,7 @@ class CatalogueControllerIntegrationTest {
 
         mockMvc.perform(get("/v1/sunnahs").header("Authorization", "Bearer " + accessToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[?(@.slug == 'use-the-miswak')].categorySlug").value("health-cleanliness"));
+                .andExpect(jsonPath("$[?(@.slug == 'use-the-miswak-before-prayer')].categorySlug").value("health-cleanliness"));
     }
 
     @Test
