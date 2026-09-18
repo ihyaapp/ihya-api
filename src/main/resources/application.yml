@@ -7,3 +7,24 @@ management:
     web:
       exposure:
         include: health
+
+# Phase 8: serve the hand-maintained openapi/*.yaml specs as a live Swagger UI
+# instead of springdoc generating its own spec from controller annotations.
+# springdoc.api-docs.enabled must stay true — disabling it also disables the
+# swagger-ui webjar's own resource handler (a Swagger UI page with nothing to
+# select 404s), even though nothing links to the auto-generated /v3/api-docs
+# spec since swagger-ui.urls below points at our own static files instead
+# (served at /openapi/** — see WebConfig).
+springdoc:
+  swagger-ui:
+    urls:
+      - name: identity
+        url: /openapi/identity-api.yaml
+      - name: profile
+        url: /openapi/profile-api.yaml
+      - name: catalogue
+        url: /openapi/catalogue-api.yaml
+      - name: dailypractice
+        url: /openapi/dailypractice-api.yaml
+      - name: notification
+        url: /openapi/notification-api.yaml

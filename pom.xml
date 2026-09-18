@@ -110,6 +110,17 @@
 			<scope>runtime</scope>
 		</dependency>
 
+		<!-- Serves the hand-maintained openapi/*.yaml specs as a live Swagger UI
+		     (Phase 8) — springdoc reads the static files under
+		     src/main/resources/openapi/ rather than generating a spec from
+		     annotations, since these specs are documentation the team writes by
+		     hand, not codegen input. -->
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<version>2.8.5</version>
+		</dependency>
+
 	</dependencies>
 
 	<build>

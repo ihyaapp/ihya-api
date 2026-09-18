@@ -37,8 +37,11 @@ public class SecurityConfig {
      *   <li>CSRF disabled — there are no browser sessions or cookies to protect;
      *       every request authenticates from scratch via a bearer token.</li>
      *   <li>No HTTP session is ever created or used ({@code STATELESS}).</li>
-     *   <li>{@code /v1/auth/**} is open (register, login, refresh); everything
-     *       else requires an authenticated request.</li>
+     *   <li>{@code /v1/auth/**} is open (register, login, refresh); the hand-maintained
+     *       OpenAPI specs and the Swagger UI that serves them ({@code /openapi/**},
+     *       {@code /swagger-ui/**}, {@code /swagger-ui.html}) are open too — a client
+     *       reading the docs before it has credentials shouldn't need a token to do
+     *       it; everything else requires an authenticated request.</li>
      *   <li>Internal {@code ERROR} dispatches are not subject to authorization:
      *       the original request was already checked, and without this an
      *       unhandled exception on a public endpoint (e.g. a bean-validation
@@ -67,6 +70,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers("/v1/auth/**").permitAll()
+                        .requestMatchers("/openapi/**", "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint(authenticationEntryPoint)
